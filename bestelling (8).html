@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bestelling</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--surface2:#f0eeea;
+  --border:rgba(0,0,0,0.1);--border2:rgba(0,0,0,0.18);
+  --text:#1a1917;--text2:#6b6a66;--text3:#a09f9b;
+  --accent:#2a5c45;--accent-light:#e8f2ed;--accent-text:#1d4030;
+  --danger:#c0392b;--danger-light:#fdf0ee;
+  --radius:10px;--radius-lg:16px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh;padding-bottom:3rem}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 1.5rem;display:flex;align-items:center;height:56px}
+.logo{font-size:18px;font-weight:600;color:var(--accent)}
+main{max-width:520px;margin:0 auto;padding:1.5rem 1rem}
+h2{font-size:18px;font-weight:600;margin-bottom:1rem;letter-spacing:-0.3px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem 1.5rem;margin-bottom:1rem}
+label{font-size:13px;color:var(--text2);display:block;margin-bottom:5px}
+input,select{width:100%;padding:10px 14px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;transition:border .15s;margin-bottom:12px}
+input:focus,select:focus{border-color:var(--accent);background:#fff}
+.btn{width:100%;padding:14px;border-radius:var(--radius);border:none;background:var(--accent);color:#fff;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s;margin-top:.5rem}
+.btn:hover{background:var(--accent-text)}
+.btn:disabled{background:var(--text3);cursor:not-allowed}
+.product-grid{display:grid;gap:10px}
+.product-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border)}
+.product-name{font-weight:500}
+.product-merk{font-size:12px;color:var(--text3)}
+.qty-ctrl{display:flex;align-items:center;gap:10px}
+.qty-ctrl button{width:32px;height:32px;border-radius:50%;border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.qty-ctrl button:hover{background:var(--accent-light)}
+.qty-ctrl span{font-size:16px;font-weight:600;min-width:20px;text-align:center;font-family:'DM Mono',monospace}
+.komst-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.komst-btn{padding:10px;border-radius:var(--radius);border:1.5px solid var(--border2);background:var(--bg);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;text-align:center;transition:all .15s}
+.komst-btn.selected{background:var(--accent);color:#fff;border-color:transparent}
+.totaal-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.5rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
+.totaal-label{font-size:13px;color:var(--text2)}
+.totaal-bedrag{font-size:22px;font-weight:600;font-family:'DM Mono',monospace;color:var(--accent)}
+.success{text-align:center;padding:3rem 1rem;display:none}
+.success-icon{font-size:60px;margin-bottom:1rem}
+.success h2{color:var(--accent)}
+.success p{color:var(--text2);margin-top:.5rem}
+.loading{text-align:center;padding:2rem;color:var(--text3)}
+.empty{text-align:center;padding:2rem;color:var(--text3);font-size:14px}
+.prijzen-info{font-size:12px;color:var(--text3);margin-top:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">bestelling</div>
+</header>
+
+<main>
+  <div id="loading" class="loading">⏳ Beschikbare smaken laden…</div>
+  <div id="leeg" class="empty" style="display:none">😔 Er is momenteel niets op voorraad. Probeer het later opnieuw.</div>
+
+  <div id="bestelform" style="display:none">
+    <div class="card">
+      <label>Jouw naam</label>
+      <input type="text" id="naam" placeholder="bijv. Ahmed" />
+      
+      <label>Wanneer kom je?</label>
+      <div class="komst-grid" id="komst-grid">
+        <button class="komst-btn" onclick="selectKomst(this,'Over 30 minuten')">Over 30 min</button>
+        <button class="komst-btn" onclick="selectKomst(this,'Over 1 uur')">Over 1 uur</button>
+        <button class="komst-btn" onclick="selectKomst(this,'Over 2 uur')">Over 2 uur</button>
+        <button class="komst-btn" onclick="selectKomst(this,'Vanavond')">Vanavond</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Kies je smaken</h2>
+      <div class="product-grid" id="product-grid"></div>
+    </div>
+
+    <div class="totaal-bar" id="totaal-bar" style="display:none">
+      <div>
+        <div class="totaal-label">Totaal</div>
+        <div class="prijzen-info" id="prijzen-info"></div>
+      </div>
+      <div class="totaal-bedrag" id="totaal-bedrag">€0,00</div>
+    </div>
+
+    <button class="btn" id="bestel-btn" onclick="plaatsOrder()" disabled>Bestelling plaatsen</button>
+  </div>
+
+  <div class="success" id="success">
+    <div class="success-icon">✅</div>
+    <h2>Bestelling ontvangen!</h2>
+    <p id="success-tekst">Je bestelling is doorgestuurd. Je hoort snel iets.</p>
+  </div>
+</main>
+
+<script>
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzur6_0P1CD9uhh4Iwdiua1EgjxhfnSYAV7SdsJW8fBDOa1EcXn64F4iu464RLB4hUW5g/exec';
+
+let varianten = {};
+let prijzen = {};
+let mixPrijs = 50;
+let qtys = {};
+let geselecteerdeKomst = '';
+
+async function laadVoorraad() {
+  try {
+    const resp = await fetch(SCRIPT_URL);
+    const text = await resp.text();
+    const data = JSON.parse(text);
+    varianten = data.state ? data.state.varianten || {} : {};
+    prijzen = data.prijzen || { 1:7.50, 2:15, 3:20, 4:25, 5:30, 10:45 };
+    mixPrijs = data.mix || 50;
+
+    const opVoorraad = Object.entries(varianten).filter(([k,v]) => v.voorraad > 0);
+    document.getElementById('loading').style.display = 'none';
+
+    if (opVoorraad.length === 0) {
+      document.getElementById('leeg').style.display = 'block';
+      return;
+    }
+
+    document.getElementById('bestelform').style.display = 'block';
+    renderProducten(opVoorraad);
+  } catch(e) {
+    document.getElementById('loading').textContent = '⚠ Kan smaken niet laden. Probeer de pagina te verversen.';
+  }
+}
+
+function renderProducten(opVoorraad) {
+  qtys = {};
+  opVoorraad.forEach(([k]) => qtys[k] = 0);
+
+  document.getElementById('product-grid').innerHTML = opVoorraad.map(([k, v]) => `
+    <div class="product-row">
+      <div>
+        <div class="product-name">${v.smaak}</div>
+        <div class="product-merk">${v.merk} · nog ${v.voorraad} op voorraad</div>
+      </div>
+      <div class="qty-ctrl">
+        <button onclick="changeQty('${k}',-1)">−</button>
+        <span id="qty-${k.replace('||','-')}">0</span>
+        <button onclick="changeQty('${k}',1)">+</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function changeQty(k, d) {
+  const v = varianten[k];
+  qtys[k] = Math.max(0, Math.min(v.voorraad, (qtys[k] || 0) + d));
+  document.getElementById('qty-' + k.replace('||','-')).textContent = qtys[k];
+  updateTotaal();
+}
+
+function selectKomst(btn, val) {
+  document.querySelectorAll('.komst-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  geselecteerdeKomst = val;
+  updateTotaal();
+}
+
+function berekenPrijs(totaalStuks) {
+  if (totaalStuks <= 0) return 0;
+  // Bereken beste prijs op basis van beschikbare prijzen
+  const beschikbaar = Object.keys(prijzen).map(Number).sort((a,b) => b-a);
+  let rest = totaalStuks;
+  let totaal = 0;
+  while (rest > 0) {
+    const passend = beschikbaar.find(q => q <= rest);
+    if (passend) { totaal += prijzen[passend]; rest -= passend; }
+    else { totaal += prijzen[1] * rest; rest = 0; }
+  }
+  return totaal;
+}
+
+function updateTotaal() {
+  const totaalStuks = Object.values(qtys).reduce((a,b) => a+b, 0);
+  const totaalPrijs = berekenPrijs(totaalStuks);
+  const heeftItems = totaalStuks > 0;
+  const heeftKomst = geselecteerdeKomst !== '';
+  const heeftNaam = document.getElementById('naam').value.trim() !== '';
+
+  document.getElementById('totaal-bar').style.display = heeftItems ? 'flex' : 'none';
+  document.getElementById('totaal-bedrag').textContent = '€' + totaalPrijs.toFixed(2).replace('.',',');
+  document.getElementById('prijzen-info').textContent = totaalStuks > 0 ? totaalStuks + ' bakje' + (totaalStuks > 1 ? 's' : '') : '';
+  document.getElementById('bestel-btn').disabled = !(heeftItems && heeftKomst && heeftNaam);
+}
+
+document.getElementById('naam').addEventListener('input', updateTotaal);
+
+async function plaatsOrder() {
+  const naam = document.getElementById('naam').value.trim();
+  if (!naam) { alert('Vul je naam in.'); return; }
+  if (!geselecteerdeKomst) { alert('Kies wanneer je komt.'); return; }
+
+  const totaalStuks = Object.values(qtys).reduce((a,b) => a+b, 0);
+  if (totaalStuks === 0) { alert('Kies minimaal 1 bakje.'); return; }
+
+  const items = Object.entries(qtys)
+    .filter(([k,q]) => q > 0)
+    .map(([k,q]) => { const v = varianten[k]; return { merk: v.merk, smaak: v.smaak, qty: q }; });
+
+  const totaalPrijs = berekenPrijs(totaalStuks);
+
+  const concept = {
+    type: 'normaal',
+    items,
+    totaal: totaalPrijs,
+    datum: new Date().toLocaleDateString('nl-NL'),
+    betaal: 'cash',
+    naam,
+    komst: geselecteerdeKomst,
+    timestamp: Date.now(),
+    vanKlant: true
+  };
+
+  document.getElementById('bestel-btn').disabled = true;
+  document.getElementById('bestel-btn').textContent = 'Versturen…';
+
+  try {
+    // Haal huidige state op, voeg concept toe, sla op
+    const resp = await fetch(SCRIPT_URL);
+    const text = await resp.text();
+    const data = JSON.parse(text);
+    if (!data.state.concepten) data.state.concepten = [];
+    data.state.concepten.push(concept);
+
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ state: data.state, prijzen: data.prijzen, mix: data.mix })
+    });
+
+    document.getElementById('bestelform').style.display = 'none';
+    document.getElementById('success').style.display = 'block';
+    document.getElementById('success-tekst').textContent = `Hey ${naam}, je bestelling van ${totaalStuks} bakje${totaalStuks > 1 ? 's' : ''} is ontvangen. Je wordt zo snel mogelijk bevestigd!`;
+  } catch(e) {
+    alert('Er ging iets mis. Probeer opnieuw.');
+    document.getElementById('bestel-btn').disabled = false;
+    document.getElementById('bestel-btn').textContent = 'Bestelling plaatsen';
+  }
+}
+
+laadVoorraad();
+</script>
+</body>
+</html>
