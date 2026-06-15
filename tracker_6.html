@@ -1,0 +1,2346 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
+#login-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.5rem;width:100%;max-width:340px;text-align:center}
+#login-box h2{font-size:20px;font-weight:600;margin-bottom:.5rem;color:var(--accent)}
+#login-box p{font-size:13px;color:var(--text3);margin-bottom:1.5rem}
+#login-box input{width:100%;padding:10px 14px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;margin-bottom:10px;text-align:center;letter-spacing:2px}
+#login-box input:focus{border-color:var(--accent)}
+#login-error{font-size:13px;color:var(--danger);margin-top:8px;display:none}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--surface2:#f0eeea;
+  --border:rgba(0,0,0,0.1);--border2:rgba(0,0,0,0.18);
+  --text:#1a1917;--text2:#6b6a66;--text3:#a09f9b;
+  --accent:#2a5c45;--accent-light:#e8f2ed;--accent-text:#1d4030;
+  --danger:#c0392b;--danger-light:#fdf0ee;
+  --warn:#b35a00;--warn-light:#fef4e8;
+  --radius:10px;--radius-lg:16px;
+}
+[data-theme="dark"]{
+  --bg:#15161a;--surface:#1e2025;--surface2:#272a30;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.15);
+  --text:#eceae6;--text2:#9b9a96;--text3:#6b6a66;
+  --accent:#4ade9c;--accent-light:#1f3329;--accent-text:#7be8b6;
+  --danger:#e06458;--danger-light:#3a1e1c;
+  --warn:#e0a458;--warn-light:#3a2e1c;
+}
+[data-theme="dark"] .pay-btn.selected-cash{background:#1f3329;border-color:#4ade9c;color:#7be8b6}
+[data-theme="dark"] .pay-btn.selected-tikkie{background:#1a2240;border-color:#5a78f1;color:#a8b8ff}
+[data-theme="dark"] .pay-btn.selected-pof{background:#3a2e1c;border-color:#e0a458;color:#ffd9a0}
+[data-theme="dark"] .badge-mix{background:#2a2240;color:#c8b8ff}
+[data-theme="dark"] .merk-pablo{background:#1f3329;color:#7be8b6}
+[data-theme="dark"] .merk-killa{background:#1a2240;color:#a8c8ff}
+[data-theme="dark"] .merk-cuba{background:#2a2040;color:#d0b8ff}
+[data-theme="dark"] .merk-fox{background:#3a2818;color:#ffc088}
+[data-theme="dark"] .merk-iceberg{background:#1a3038;color:#88e0f0}
+[data-theme="dark"] .merk-velo{background:#2e2818;color:#d8c8a0}
+[data-theme="dark"] .merk-default{background:#272a30;color:#b0aea8}
+[data-theme="dark"] .concept-card{background:#2e2818;border-color:#4a3818}
+[data-theme="dark"] .concept-card h3{color:#e0a458}
+[data-theme="dark"] .price-btn.mix-btn{background:#2a2240;border-color:#5a4a90}
+[data-theme="dark"] .price-btn.mix-btn.selected{background:#5a3dc0;border-color:transparent}
+[data-theme="dark"] .badge-bevestigd{background:#1f3329;color:#7be8b6}
+[data-theme="dark"] .badge-concept{background:#3a2e1c;color:#e0a458}
+[data-theme="dark"] .bezorg-btn.actief{background:#2241d0;color:#fff}
+[data-theme="dark"] input,[data-theme="dark"] select{color-scheme:dark}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 2rem;display:flex;align-items:center;gap:1rem;height:60px;position:sticky;top:0;z-index:100}
+.logo{font-size:18px;font-weight:600;letter-spacing:-0.5px;color:var(--accent)}
+.logo span{color:var(--text2);font-weight:400}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tab{padding:6px 14px;border-radius:8px;border:none;background:transparent;cursor:pointer;font-size:14px;font-family:inherit;color:var(--text2);transition:all .15s}
+.tab:hover{background:var(--surface2);color:var(--text)}
+.tab.active{background:var(--accent);color:#fff;font-weight:500}
+main{max-width:980px;margin:0 auto;padding:2rem 1.5rem}
+.section{display:none}.section.active{display:block}
+.page-title{font-size:22px;font-weight:600;letter-spacing:-0.5px;margin-bottom:1.5rem}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:1.5rem}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.1rem 1.25rem}
+.metric-label{font-size:12px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.metric-value{font-size:24px;font-weight:600;font-family:'DM Mono',monospace;letter-spacing:-1px}
+.metric-value.green{color:var(--accent)}.metric-value.red{color:var(--danger)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem 1.5rem;margin-bottom:1rem}
+.card h3{font-size:12px;font-weight:600;color:var(--text3);margin-bottom:1.1rem;text-transform:uppercase;letter-spacing:.5px}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;align-items:end}
+label{font-size:13px;color:var(--text2);display:block;margin-bottom:5px}
+input,select{width:100%;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);transition:border .15s;outline:none}
+input:focus,select:focus{border-color:var(--accent);background:#fff}
+.btn{padding:8px 18px;border-radius:var(--radius);border:1px solid var(--border2);background:transparent;cursor:pointer;font-size:14px;font-family:inherit;color:var(--text);transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface2)}
+.btn-primary{background:var(--accent);color:#fff;border-color:transparent;font-weight:500}
+.btn-primary:hover{background:var(--accent-text)}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-danger{color:var(--danger);border-color:rgba(192,57,43,.2)}
+.btn-danger:hover{background:var(--danger-light)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 10px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.badge{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;font-weight:500}
+.badge-ok{background:var(--accent-light);color:var(--accent-text)}
+.badge-low{background:var(--warn-light);color:var(--warn)}
+.badge-empty{background:var(--danger-light);color:var(--danger)}
+.badge-mix{background:#ede8f5;color:#4a2d8a}
+.empty{text-align:center;padding:2.5rem;color:var(--text3);font-size:14px}
+.green{color:var(--accent)}.red{color:var(--danger)}.muted{color:var(--text3)}
+.table-wrap{overflow-x:auto}
+
+/* Verkoop knoppen */
+.price-grid{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem}
+.price-btn{padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--bg);cursor:pointer;font-family:inherit;text-align:center;transition:all .15s;min-width:62px}
+.price-btn:hover{border-color:var(--accent);background:var(--accent-light)}
+.price-btn.selected{background:var(--accent);color:#fff;border-color:transparent}
+.price-btn .qty{font-size:16px;font-weight:600;display:block}
+.price-btn .prijs{font-size:12px;color:var(--text2)}
+.price-btn.selected .prijs{color:rgba(255,255,255,.8)}
+.price-btn.mix-btn{border-color:#c4b5e8;background:#f5f2fc}
+.price-btn.mix-btn.selected{background:#4a2d8a;border-color:transparent}
+
+/* Mix rol builder */
+.mix-builder{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem;margin-top:1rem}
+.mix-builder h4{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:.75rem}
+.mix-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.mix-row select{flex:1}
+.mix-count{display:flex;align-items:center;gap:6px}
+.mix-count button{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;line-height:1;transition:all .15s}
+.mix-count button:hover{background:var(--surface2)}
+.mix-count span{font-size:15px;font-weight:600;min-width:20px;text-align:center;font-family:'DM Mono',monospace}
+.mix-total{font-size:13px;color:var(--text2);margin-top:.5rem}
+.mix-total strong{color:var(--text)}
+.mix-total.ok strong{color:var(--accent)}
+.mix-total.over strong{color:var(--danger)}
+
+/* Smaken chips */
+.smaak-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.smaak-chip{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-light);color:var(--accent-text);display:flex;align-items:center;gap:4px}
+.smaak-chip button{background:none;border:none;cursor:pointer;color:var(--accent-text);font-size:14px;line-height:1;padding:0}
+
+/* Betaalmethode knoppen */
+.pay-grid{display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap}
+.pay-btn{padding:8px 16px;border-radius:var(--radius);border:1.5px solid var(--border2);background:var(--bg);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;transition:all .15s;display:flex;align-items:center;gap:6px}
+.pay-btn:hover{background:var(--surface2)}
+.pay-btn.selected-cash{background:#e8f5ee;border-color:#2a5c45;color:#1d4030}
+.pay-btn.selected-tikkie{background:#eef0ff;border-color:#3d5af1;color:#2241d0}
+.pay-btn.selected-pof{background:#fff8e8;border-color:#b35a00;color:#7a3d00}
+.badge-concept{background:#fff8e8;color:#7a3d00}
+.badge-bevestigd{background:#e8f5ee;color:#1d4030}
+.concept-card{background:#fffbf0;border:1.5px solid #f0c040;border-radius:var(--radius-lg);padding:1.25rem 1.5rem;margin-bottom:1rem}
+.concept-card h3{font-size:12px;font-weight:600;color:#7a3d00;margin-bottom:1.1rem;text-transform:uppercase;letter-spacing:.5px}
+.badge-tikkie{background:#eef0ff;color:#2241d0}
+.badge-pof{background:#fff8e8;color:#7a3d00}
+
+@media(max-width:600px){
+  header{padding:0 1rem}
+  .logo span{display:none}
+  .tab{padding:6px 10px;font-size:13px}
+  main{padding:1.25rem 1rem}
+  .price-btn{min-width:75px;padding:8px 12px}
+}
+.lever-btn{flex:1;padding:9px;border-radius:7px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:14px;font-weight:500;color:var(--text2);transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.lever-btn.active{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,0.1)}
+.mix-inkoop-row{display:grid;grid-template-columns:1fr 1fr 80px 90px 28px;gap:8px;align-items:end;margin-bottom:8px}
+.mix-inkoop-row input{margin-bottom:0}
+.prijsinfo-chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:20px;background:var(--accent-light);color:var(--accent-text);margin-left:6px;font-family:"DM Mono",monospace}
+.ink-header{display:grid;grid-template-columns:1fr 1fr 90px 90px 90px 28px;gap:8px;padding:0 2px;margin-bottom:6px}
+.ink-header span{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.inkoop-rij{display:grid;grid-template-columns:1fr 1fr 90px 90px 90px 28px;gap:8px;align-items:center;margin-bottom:8px}
+.inkoop-rij input{margin-bottom:0}
+.inkoop-rij .rollen-ctrl{display:flex;align-items:center;gap:4px;justify-content:center}
+.inkoop-rij .rollen-ctrl button{width:26px;height:26px;border-radius:50%;border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.inkoop-rij .rollen-ctrl span{font-weight:600;min-width:22px;text-align:center;font-family:"DM Mono",monospace}
+.ppb-chip{font-size:13px;font-family:"DM Mono",monospace;color:var(--accent);font-weight:500}
+.diff-up{color:var(--accent);font-weight:600}
+.trend-chart-wrap{overflow-x:auto}
+.trend-chart-wrap svg{display:block;min-width:100%}
+.trend-legend{display:flex;gap:16px;margin-bottom:12px;font-size:12px;color:var(--text2)}
+.trend-legend-item{display:flex;align-items:center;gap:6px}
+.trend-legend-dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+.trend-bar-omzet{fill:var(--accent-light)}
+.trend-bar-winst{fill:var(--accent)}
+.trend-bar-omzet:hover, .trend-bar-winst:hover{opacity:.75}
+.trend-tooltip{font-size:11px;font-family:"DM Mono",monospace}
+.prijs-optie-btn{padding:8px 14px;border-radius:var(--radius);border:1.5px solid var(--border2);background:var(--bg);cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;transition:all .15s;position:relative;display:flex;flex-direction:column;align-items:center;gap:1px}
+.prijs-optie-btn:hover{border-color:var(--accent);background:var(--accent-light)}
+.prijs-optie-btn.actief{background:var(--accent);color:#fff;border-color:transparent}
+.prijs-optie-sub{font-size:10px;font-weight:400;opacity:.8}
+.bezorg-btn{padding:8px 14px;border-radius:var(--radius);border:1.5px solid var(--border2);background:var(--bg);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;transition:all .15s;color:var(--text2)}
+.bezorg-btn:hover{border-color:#2241d0;background:#eef0ff;color:#2241d0}
+.bezorg-btn.actief{background:#2241d0;color:#fff;border-color:transparent}
+.prijs-totaal-preview{font-size:14px;color:var(--text2);margin-top:8px}
+.prijs-totaal-preview strong{color:var(--accent);font-size:16px;font-family:"DM Mono",monospace}
+.topflop-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem}
+.topflop-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.25rem}
+.topflop-card h4{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.75rem}
+.topflop-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)}
+.topflop-row:last-child{border-bottom:none}
+.topflop-label{font-size:13px;color:var(--text2)}
+.topflop-val{font-family:"DM Mono",monospace;font-size:13px;font-weight:600}
+.topflop-best .topflop-val{color:var(--accent)}
+.topflop-worst .topflop-val{color:var(--danger)}
+.topflop-date{font-size:11px;color:var(--text3);margin-top:1px}
+@media(max-width:600px){.topflop-grid{grid-template-columns:1fr}}
+.diff-down{color:var(--danger);font-weight:600}
+.diff-neutral{color:var(--text3)}
+.metric-diff{font-size:12px;margin-top:4px}
+.metric-sub{font-size:13px;color:var(--text3);margin-top:2px;font-family:"DM Mono",monospace}
+.merk-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:.3px;text-transform:uppercase}
+.merk-pablo{background:#e8f2ed;color:#1d4030}
+.merk-killa{background:#e8eef8;color:#1a3a6b}
+.merk-cuba{background:#f0eaf8;color:#4a2080}
+.merk-fox{background:#fff0e0;color:#7a3d00}
+.merk-iceberg{background:#e0f4f8;color:#0a4a5a}
+.merk-velo{background:#f5f0e8;color:#5a4020}
+.merk-default{background:#f0eeea;color:#4a4845}
+.ink-groep-pablo td:first-child{border-left:3px solid #2a5c45}
+.ink-groep-killa td:first-child{border-left:3px solid #2a4a8a}
+.ink-groep-cuba td:first-child{border-left:3px solid #6a30b0}
+.ink-groep-fox td:first-child{border-left:3px solid #c06010}
+.ink-groep-iceberg td:first-child{border-left:3px solid #0a8aaa}
+.ink-groep-velo td:first-child{border-left:3px solid #8a7050}
+.ink-groep-default td:first-child{border-left:3px solid var(--border2)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">tracker</div>
+  <span id="sync-status" style="font-size:12px;color:var(--text3);margin-left:.5rem"></span>
+  <nav class="tabs">
+    <button class="tab active" onclick="showTab('overzicht')">Overzicht</button>
+    <button class="tab" onclick="showTab('inkoop')">Inkoop</button>
+    <button class="tab" onclick="showTab('verkoop')">Verkoop</button>
+    <button class="tab" onclick="showTab('voorraad')">Voorraad</button>
+    <button class="tab" onclick="showTab('statistieken')">Statistieken</button>
+    <button class="tab" onclick="showTab('poflijst')" id="tab-poflijst">📋 Pof</button>
+    <button class="tab" onclick="showTab('instellingen')">⚙ Instellingen</button>
+    <button class="tab" onclick="toggleTheme()" id="theme-toggle" title="Donker/licht thema" style="font-size:16px;padding:6px 10px">🌙</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- OVERZICHT -->
+<div id="sec-overzicht" class="section active">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:1.5rem">
+    <p class="page-title" style="margin-bottom:0">Overzicht</p>
+    <div style="display:flex;gap:6px">
+      <button class="btn" id="ov-vandaag" onclick="setOvPeriod('vandaag')">Vandaag</button>
+      <button class="btn" id="ov-week" onclick="setOvPeriod('week')">Deze week</button>
+      <button class="btn" id="ov-maand" onclick="setOvPeriod('maand')">Deze maand</button>
+      <button class="btn active" id="ov-alles" onclick="setOvPeriod('alles')" style="background:var(--accent);color:#fff;border-color:transparent">Alle tijd</button>
+    </div>
+  </div>
+  <div class="metric-grid" id="metrics"></div>
+
+  <!-- Omzettrend grafiek -->
+  <div class="card">
+    <h3>Omzet &amp; winst (laatste 30 dagen)</h3>
+    <div id="trend-chart"></div>
+  </div>
+
+  <!-- Vergelijking vorige periode (verborgen bij "alles") -->
+  <div id="vergelijk-sectie" style="display:none;margin-bottom:1rem">
+    <div class="card" style="padding:1.1rem 1.5rem">
+      <h3 id="vergelijk-titel">Vs. vorige periode</h3>
+      <div class="metric-grid" id="vergelijk-metrics" style="margin-bottom:0"></div>
+    </div>
+  </div>
+
+  <!-- Top / Flop -->
+  <div id="topflop-sectie" style="margin-bottom:1rem"></div>
+
+  <div class="card">
+    <h3>Prestaties per merk / smaak</h3>
+    <div id="brand-table-wrap" class="table-wrap"></div>
+  </div>
+</div>
+
+<!-- INKOOP -->
+<div id="sec-inkoop" class="section">
+  <p class="page-title">Inkoop</p>
+  <datalist id="merk-list"></datalist>
+
+  <div class="card">
+    <h3>Inkoop toevoegen</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem">Voeg per rij een merk, smaak, aantal rollen en prijs per rol in. Het systeem rekent alles automatisch uit.</p>
+    <div class="ink-header">
+      <span>Merk</span><span>Smaak</span><span style="text-align:center">Rollen</span><span>&#8364;/rol</span><span>Per bakje</span><span></span>
+    </div>
+    <div id="inkoop-rijen"></div>
+    <button class="btn btn-sm" onclick="addInkoopRij()" style="margin-top:4px;margin-bottom:14px">+ Rij toevoegen</button>
+    <div id="inkoop-totaal-bar" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--text2);display:none">
+      <span id="inkoop-totaal-tekst"></span>
+    </div>
+    <button class="btn btn-primary" onclick="verwerkInkoop()">&#10003; Inkoop verwerken</button>
+  </div>
+
+  <div class="card">
+    <h3>Inkoophistorie</h3>
+    <div id="inkoop-list" class="table-wrap"></div>
+  </div>
+</div>
+
+<!-- VERKOOP -->
+<div id="sec-verkoop" class="section">
+  <p class="page-title">Verkoop</p>
+  <div class="card">
+    <h3>Kies type verkoop</h3>
+    <div class="price-grid" id="price-grid-btns">
+      <button class="price-btn selected" onclick="selectPriceBtn(this,1,7.5,false)"><span class="qty">1</span><span class="prijs">€7,50</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,2,15,false)"><span class="qty">2</span><span class="prijs">€15,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,3,20,false)"><span class="qty">3</span><span class="prijs">€20,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,4,25,false)"><span class="qty">4</span><span class="prijs">€25,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,5,30,false)"><span class="qty">5</span><span class="prijs">€30,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,6,35,false)"><span class="qty">6</span><span class="prijs">€35,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,7,40,false)"><span class="qty">7</span><span class="prijs">€40,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,8,45,false)"><span class="qty">8</span><span class="prijs">€45,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,9,50,false)"><span class="qty">9</span><span class="prijs">€50,00</span></button>
+      <button class="price-btn" onclick="selectPriceBtn(this,10,45,false)"><span class="qty">Rol</span><span class="prijs">€45,00</span></button>
+      <button class="price-btn mix-btn" onclick="selectPriceBtn(this,10,50,true)"><span class="qty">Mix rol</span><span class="prijs">€50,00</span></button>
+    </div>
+
+    <!-- Prijs opties -->
+    <div id="prijs-opties" style="margin-top:.75rem"></div>
+
+    <!-- 1 bakje: enkelvoudig -->
+    <div id="single-sale">
+      <div class="form-row" style="margin-top:.5rem">
+        <div><label>Merk</label><select id="vk-merk" onchange="updateSmaakSelect()"><option value="">— kies merk —</option></select></div>
+        <div><label>Smaak</label><select id="vk-smaak"><option value="">— kies smaak —</option></select></div>
+      </div>
+      <label style="font-size:13px;color:var(--text2);margin-top:.75rem;display:block">Betaalmethode</label>
+      <div class="pay-grid" id="pay-btns">
+        <button class="pay-btn selected-cash" onclick="selectPay(this,'cash')">💵 Cash</button>
+        <button class="pay-btn" onclick="selectPay(this,'tikkie')">📲 Tikkie</button>
+        <button class="pay-btn" onclick="selectPay(this,'pof')">📋 Pof</button>
+      </div>
+      <div id="pof-naam-wrap" style="display:none;margin-top:8px">
+        <label>Naam klant (voor poflijst)</label>
+        <input type="text" id="pof-naam" placeholder="bijv. Ahmed" style="margin-bottom:0" />
+      </div>
+      <button class="btn btn-primary" onclick="addVerkoop()" style="margin-top:.75rem">+ Toevoegen</button>
+    </div>
+
+    <!-- Multi smaak (2-5 bakjes en rol) -->
+    <div id="multi-sale" style="display:none">
+      <div class="mix-builder" style="margin-top:.75rem">
+        <h4 id="multi-sale-titel">Kies je smaken (totaal 2 stuks)</h4>
+        <div id="multi-rows"></div>
+        <button class="btn btn-sm" onclick="addMultiRow()" style="margin-top:4px">+ Smaak toevoegen</button>
+        <div class="mix-total" id="multi-total">Totaal: <strong>0 / 2</strong></div>
+      </div>
+      <label style="font-size:13px;color:var(--text2);margin-top:.75rem;display:block">Betaalmethode</label>
+      <div class="pay-grid" id="pay-btns-multi">
+        <button class="pay-btn selected-cash" onclick="selectPayMulti(this,'cash')">💵 Cash</button>
+        <button class="pay-btn" onclick="selectPayMulti(this,'tikkie')">📲 Tikkie</button>
+        <button class="pay-btn" onclick="selectPayMulti(this,'pof')">📋 Pof</button>
+      </div>
+      <div id="pof-naam-wrap-multi" style="display:none;margin-top:8px">
+        <label>Naam klant (voor poflijst)</label>
+        <input type="text" id="pof-naam-multi" placeholder="bijv. Ahmed" style="margin-bottom:0" />
+      </div>
+      <button class="btn btn-primary" onclick="addMultiVerkoop()" style="margin-top:.75rem">+ Toevoegen</button>
+    </div>
+
+    <!-- Mix rol (altijd 10 stuks, vaste prijs) -->
+    <div id="mix-sale" style="display:none">
+      <div class="mix-builder">
+        <h4>Stel je mix rol samen (totaal 10 stuks)</h4>
+        <div id="mix-rows"></div>
+        <button class="btn btn-sm" onclick="addMixRow()" style="margin-top:4px">+ Smaak toevoegen</button>
+        <div class="mix-total" id="mix-total">Totaal: <strong>0 / 10</strong></div>
+      </div>
+      <label style="font-size:13px;color:var(--text2);margin-top:.75rem;display:block">Betaalmethode</label>
+      <div class="pay-grid" id="pay-btns-mix">
+        <button class="pay-btn selected-cash" onclick="selectPayMix(this,'cash')">💵 Cash</button>
+        <button class="pay-btn" onclick="selectPayMix(this,'tikkie')">📲 Tikkie</button>
+        <button class="pay-btn" onclick="selectPayMix(this,'pof')">📋 Pof</button>
+      </div>
+      <div id="pof-naam-wrap-mix" style="display:none;margin-top:8px">
+        <label>Naam klant (voor poflijst)</label>
+        <input type="text" id="pof-naam-mix" placeholder="bijv. Ahmed" style="margin-bottom:0" />
+      </div>
+      <button class="btn btn-primary" onclick="addMixVerkoop()" style="margin-top:.75rem">+ Toevoegen</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Verkoophistorie</h3>
+    <div id="verkoop-list" class="table-wrap"></div>
+  </div>
+</div>
+
+<!-- VOORRAAD -->
+<div id="sec-voorraad" class="section">
+  <p class="page-title">Voorraad</p>
+  <div class="card">
+    <h3>Voorraad per smaak</h3>
+    <div id="voorraad-table" class="table-wrap"></div>
+  </div>
+</div>
+
+<!-- STATISTIEKEN -->
+<div id="sec-statistieken" class="section">
+  <p class="page-title">Statistieken</p>
+  <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
+    <button class="btn" id="period-dag" onclick="setPeriod('dag')">Per dag</button>
+    <button class="btn active" id="period-week" onclick="setPeriod('week')" style="background:var(--accent);color:#fff;border-color:transparent">Per week</button>
+    <button class="btn" id="period-maand" onclick="setPeriod('maand')">Per maand</button>
+    <button class="btn" id="period-4weken" onclick="setPeriod('4weken')">Per 4 weken</button>
+    <select id="period-select" onchange="selectSpecifiekePeriode(this.value)" style="margin-left:auto;max-width:220px;margin-bottom:0">
+      <option value="">— alle periodes —</option>
+    </select>
+  </div>
+  <div class="metric-grid" id="stat-metrics"></div>
+  <div class="card">
+    <h3 id="stat-table-title">Overzicht per week</h3>
+    <div id="stat-table" class="table-wrap"></div>
+  </div>
+  <div class="card">
+    <h3>Beste verkoopdagen</h3>
+    <div id="stat-best" class="table-wrap"></div>
+  </div>
+  <div class="card">
+    <h3>Betaalmethodes</h3>
+    <div id="stat-betaal" class="table-wrap"></div>
+  </div>
+</div>
+
+<!-- POFLIJST -->
+<div id="sec-poflijst" class="section">
+  <p class="page-title">Poflijst</p>
+  <div id="pof-totaal-banner" style="display:none;background:#fff8e8;border:1px solid #f0c040;border-radius:var(--radius-lg);padding:1rem 1.5rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center">
+    <span style="font-size:13px;color:#7a3d00;font-weight:500">Totaal openstaand</span>
+    <span id="pof-totaal-bedrag" style="font-size:20px;font-weight:700;font-family:'DM Mono',monospace;color:#7a3d00">€0,00</span>
+  </div>
+  <div id="pof-personen"></div>
+</div>
+
+<!-- INSTELLINGEN -->
+<div id="sec-instellingen" class="section">
+  <p class="page-title">Instellingen</p>
+  <div class="card">
+    <h3>Verkoopprijzen aanpassen</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem">Pas hier de vaste verkoopprijzen aan. Wijzigingen gelden direct bij de volgende verkoop.</p>
+    <div id="prijzen-form"></div>
+    <button class="btn btn-primary" onclick="savePrijzen()" style="margin-top:1rem">✓ Prijzen opslaan</button>
+    <span id="prijzen-saved" style="font-size:13px;color:var(--accent);margin-left:12px;display:none">Opgeslagen!</span>
+  </div>
+  <div class="card">
+    <h3>Historische data importeren</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem">Importeer je handmatig bijgehouden omzet/winst van 17 april t/m 14 juni 2026 (59 dagen) als statistieken. Dit beïnvloedt je voorraad niet — alleen Overzicht en Statistieken.</p>
+    <div id="import-status" style="font-size:13px;margin-bottom:10px"></div>
+    <button class="btn btn-primary" id="import-historisch-btn" onclick="importHistorischeData()">📥 Historische data importeren</button>
+  </div>
+  <div class="card" style="border-color:rgba(192,57,43,.2)">
+    <h3 style="color:var(--danger)">Gevaarlijke zone</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:1rem">Hiermee verwijder je alle data permanent. Dit kan niet ongedaan worden gemaakt.</p>
+    <button class="btn btn-danger" onclick="resetAlles()">Alle data verwijderen</button>
+  </div>
+</div>
+
+</main>
+
+<script>
+
+// --- DARK MODE ---
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  setTheme(isDark ? 'light' : 'dark');
+}
+
+function setTheme(theme) {
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.getElementById('theme-toggle').textContent = '☀️';
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    document.getElementById('theme-toggle').textContent = '🌙';
+  }
+  localStorage.setItem('snus_theme', theme);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('snus_theme');
+  if (saved === 'dark') setTheme('dark');
+}
+
+// State
+let state = { varianten: {}, inkoop: [], verkoop: [], concepten: [] };
+// varianten key: "Merk||Smaak" → { merk, smaak, voorraad, inkoop_prijs, totaal_verkocht, totaal_omzet }
+
+// Standaard prijzen
+const DEFAULT_PRIJZEN = { 1:7.50, 2:15, 3:20, 4:25, 5:30, 10:45 };
+const DEFAULT_MIX = 50;
+let PRIJZEN = {...DEFAULT_PRIJZEN};
+let MIX_PRIJS = DEFAULT_MIX;
+
+let saleQty = 1;
+let salePrijs = 7.50;
+let isMix = false;
+let mixItems = []; // [{key, qty}]
+let saleBetaal = 'cash';
+let saleBetaalMix = 'cash';
+let regType = 'bevestigd';
+let regTypeMix = 'bevestigd';
+
+function setRegType(type) {
+  regType = type;
+  document.getElementById('reg-bevestigd').className = type === 'bevestigd' ? 'btn btn-primary' : 'btn';
+  document.getElementById('reg-concept').className = type === 'concept' ? 'btn btn-primary' : 'btn';
+  if (type === 'concept') { document.getElementById('reg-concept').style.cssText = 'background:#f0c040;color:#fff;border-color:transparent'; document.getElementById('reg-bevestigd').style.cssText = ''; }
+  else { document.getElementById('reg-bevestigd').style.cssText = ''; document.getElementById('reg-concept').style.cssText = 'border-color:#f0c040;color:#7a3d00'; }
+}
+
+function setRegTypeMix(type) {
+  regTypeMix = type;
+  document.getElementById('reg-bevestigd-mix').className = type === 'bevestigd' ? 'btn btn-primary' : 'btn';
+  document.getElementById('reg-concept-mix').className = type === 'concept' ? 'btn btn-primary' : 'btn';
+  if (type === 'concept') { document.getElementById('reg-concept-mix').style.cssText = 'background:#f0c040;color:#fff;border-color:transparent'; document.getElementById('reg-bevestigd-mix').style.cssText = ''; }
+  else { document.getElementById('reg-bevestigd-mix').style.cssText = ''; document.getElementById('reg-concept-mix').style.cssText = 'border-color:#f0c040;color:#7a3d00'; }
+}
+
+function selectPay(btn, methode) {
+  document.querySelectorAll('#pay-btns .pay-btn').forEach(b => b.className = 'pay-btn');
+  btn.classList.add('selected-' + methode);
+  saleBetaal = methode;
+  const wrap = document.getElementById('pof-naam-wrap');
+  if (wrap) wrap.style.display = methode === 'pof' ? 'block' : 'none';
+}
+function selectPayMulti(btn, methode) {
+  document.querySelectorAll('#pay-btns-multi .pay-btn').forEach(b => b.className = 'pay-btn');
+  btn.classList.add('selected-' + methode);
+  saleBetaalMulti = methode;
+  const wrap = document.getElementById('pof-naam-wrap-multi');
+  if (wrap) wrap.style.display = methode === 'pof' ? 'block' : 'none';
+}
+function selectPayMix(btn, methode) {
+  document.querySelectorAll('#pay-btns-mix .pay-btn').forEach(b => b.className = 'pay-btn');
+  btn.classList.add('selected-' + methode);
+  saleBetaalMix = methode;
+  const wrap = document.getElementById('pof-naam-wrap-mix');
+  if (wrap) wrap.style.display = methode === 'pof' ? 'block' : 'none';
+}
+
+const VERVAL_MS = 60 * 60 * 1000; // 1 uur
+
+function verwijderVervallenConcepten() {
+  if (!state.concepten) state.concepten = [];
+  const nu = Date.now();
+  state.concepten = state.concepten.filter(c => {
+    if (!c.timestamp) return true;
+    return (nu - c.timestamp) < VERVAL_MS;
+  });
+}
+
+function key(merk, smaak) { return merk + '||' + smaak; }
+function parseKey(k) { const p = k.split('||'); return { merk: p[0], smaak: p[1] }; }
+
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzur6_0P1CD9uhh4Iwdiua1EgjxhfnSYAV7SdsJW8fBDOa1EcXn64F4iu464RLB4hUW5g/exec';
+
+function showSyncStatus(msg, color) {
+  let el = document.getElementById('sync-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = color || 'var(--text3)';
+}
+
+async function loadState() {
+  showSyncStatus('⏳ Laden…');
+  // Laad prijzen altijd uit localStorage als fallback
+  try { const p = localStorage.getItem('snus_prijzen'); if (p) { const parsed = JSON.parse(p); PRIJZEN = parsed.prijzen || {...DEFAULT_PRIJZEN}; MIX_PRIJS = parsed.mix || DEFAULT_MIX; } } catch(e) {}
+  try {
+    const resp = await fetch(SCRIPT_URL);
+    const text = await resp.text();
+    if (text && text !== '{}') {
+      const parsed = JSON.parse(text);
+      state = parsed.state || { varianten: {}, inkoop: [], verkoop: [] };
+      if (parsed.prijzen) { PRIJZEN = parsed.prijzen; MIX_PRIJS = parsed.mix || DEFAULT_MIX; }
+    }
+    showSyncStatus('✓ Gesynchroniseerd', 'var(--accent)');
+    verwijderVervallenConcepten();
+  } catch(e) {
+    // Fallback naar localStorage
+    try { const r = localStorage.getItem('snus_tracker_v2'); if (r) state = JSON.parse(r); } catch(e2) {}
+    verwijderVervallenConcepten();
+    showSyncStatus('⚠ Offline — lokale data', 'var(--warn)');
+  }
+  render();
+}
+
+let saveTimer = null;
+function saveState() {
+  // Sla ook lokaal op als backup
+  localStorage.setItem('snus_tracker_v2', JSON.stringify(state));
+  // Debounce: wacht 800ms zodat snelle acties niet te veel requests sturen
+  clearTimeout(saveTimer);
+  showSyncStatus('💾 Opslaan…', 'var(--text3)');
+  saveTimer = setTimeout(async () => {
+    try {
+      const payload = JSON.stringify({ state, prijzen: PRIJZEN, mix: MIX_PRIJS });
+      await fetch(SCRIPT_URL, { method: 'POST', body: payload });
+      showSyncStatus('✓ Opgeslagen in Google Sheets', 'var(--accent)');
+      setTimeout(() => showSyncStatus(''), 3000);
+    } catch(e) {
+      showSyncStatus('⚠ Kon niet opslaan — check internet', 'var(--danger)');
+    }
+  }, 800);
+}
+
+function showTab(t) {
+  ['overzicht','inkoop','verkoop','voorraad','statistieken','poflijst','instellingen'].forEach((n,i) => {
+    document.querySelectorAll('.tab')[i].classList.toggle('active', n === t);
+    document.getElementById('sec-'+n).classList.toggle('active', n === t);
+  });
+  if (t === 'verkoop') { updateVkMerkSelect(); buildMixRows(); renderPrijsBtns(); renderConcepten(); renderPrijsOpties(); document.getElementById('single-sale').style.display='block'; document.getElementById('multi-sale').style.display='none'; document.getElementById('mix-sale').style.display='none'; }
+  if (t === 'inkoop') { updateMerkDatalist(); renderInkoopRijen(); }
+  if (t === 'instellingen') {
+    renderPrijzenForm();
+    const al_aanwezig = state.verkoop.some(s => s.items[0] && s.items[0].merk === 'Historisch');
+    const btn = document.getElementById('import-historisch-btn');
+    if (btn && al_aanwezig) {
+      btn.disabled = true;
+      btn.textContent = '✓ Al geïmporteerd';
+      document.getElementById('import-status').innerHTML = '<span style="color:var(--accent)">✓ Historische data is al aanwezig (59 dagen)</span>';
+    }
+  }
+  if (t === 'statistieken') renderStatistieken();
+  if (t === 'poflijst') renderPoflijst();
+}
+
+// --- INKOOP ---
+const VASTE_MERKEN = ['Iceberg', 'Velo', 'Pablo', 'Killa', 'Cuba', 'Fox'];
+
+const VASTE_SMAKEN = {
+  'Pablo': [
+    'Ice Cold', 'Ice Cold Mini', 'Red', 'Green Mint', 'Blue Mint', 'Frosted Mint',
+    'Frosted Ice', 'Mango Ice', 'Watermelon Lemon', 'Pineapple', 'Peer', 'Lemonade',
+    'Pink Lemonade', 'Blueberry Cranberry Cherry', 'Blueberry Peach Ice', 'Strawberry Kiwi',
+    'Cola', 'Bubblegum', 'Kiwi', 'Orange', 'Banana Ice', 'Blue Raspberry', 'Passionfruit',
+    'Strawberry Watermelon', 'Strawberry Cheesecake', 'Strawberry Lychee',
+    'Dark Cherry', 'Cherry Cola', 'Grape Ice', 'Tropical Punch'
+  ],
+  'Killa': [
+    'Cold Mint', 'Watermeloen', 'Mango Ice', 'Cola', 'Appel', '13',
+    'Pineapple', 'Blueberry', 'Strawberry Watermeloen', 'Grape Ice', 'Bubblegum'
+  ],
+  'Cuba': [
+    'Peach', 'Cherry', 'Watermeloen', 'Blueberry', 'Banana Mint', 'Apple Juice'
+  ],
+  'Fox': [
+    'White Fox Slim Mint', 'White Fox Slim Double Mint'
+  ],
+  'Iceberg': [
+    'Araska', 'Melon Peach', 'Black', 'Energy'
+  ],
+  'Velo': [],
+};
+const BAKJES_PER_ROL = 10;
+
+let inkoopRijen = [{ merk: '', smaak: '', rollen: 1, prijsPerRol: '' }];
+
+function updateMerkDatalist() {
+  const merkenUitState = [...new Set(Object.values(state.varianten).map(v => v.merk))];
+  const alleMerken = [...new Set([...VASTE_MERKEN, ...merkenUitState])].sort();
+  const opts = alleMerken.map(m => `<option value="${m}">`).join('');
+  const el = document.getElementById('merk-list');
+  if (el) el.innerHTML = opts;
+}
+
+function addInkoopRij() {
+  inkoopRijen.push({ merk: '', smaak: '', rollen: 1, prijsPerRol: '' });
+  renderInkoopRijen();
+}
+
+function removeInkoopRij(i) {
+  inkoopRijen.splice(i, 1);
+  renderInkoopRijen();
+}
+
+function changeRollen(i, d) {
+  inkoopRijen[i].rollen = Math.max(1, (parseInt(inkoopRijen[i].rollen) || 1) + d);
+  renderInkoopRijen();
+}
+
+function renderInkoopRijen() {
+  const container = document.getElementById('inkoop-rijen');
+  if (!container) return;
+
+  // Bouw datalists per rij op basis van gekozen merk
+  let html = '';
+  inkoopRijen.forEach((rij, i) => {
+    const merkSmaken = (rij.merk && VASTE_SMAKEN[rij.merk]) ? VASTE_SMAKEN[rij.merk] : [];
+    const extraSmaken = [...new Set(Object.values(state.varianten).filter(v => v.merk === rij.merk).map(v => v.smaak))];
+    const alleSmaken = [...new Set([...merkSmaken, ...extraSmaken])];
+    html += `<datalist id="smaak-list-${i}">${alleSmaken.map(s => `<option value="${s}">`).join('')}</datalist>`;
+
+    const pprol = parseFloat(rij.prijsPerRol);
+    const ppb = !isNaN(pprol) && pprol > 0 ? (pprol / BAKJES_PER_ROL) : null;
+    const mk = getMerkKlasse(rij.merk);
+    const badgeHtml = rij.merk
+      ? `<span class="merk-badge merk-${mk}" style="margin-bottom:6px;display:inline-block">${rij.merk}</span>`
+      : '';
+    html += `<div class="inkoop-rij" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;border-left:3px solid ${rij.merk ? 'var(--accent)' : 'var(--border2)'}">
+      <div>
+        ${badgeHtml}
+        <input type="text" placeholder="Merk" value="${rij.merk}" list="merk-list"
+          oninput="inkoopRijen[${i}].merk=this.value;renderInkoopRijen()" style="margin-bottom:0" />
+      </div>
+      <input type="text" placeholder="Smaak" value="${rij.smaak}" list="smaak-list-${i}"
+        oninput="inkoopRijen[${i}].smaak=this.value" style="margin-bottom:0" />
+      <div class="rollen-ctrl">
+        <button onclick="changeRollen(${i},-1)">−</button>
+        <span>${rij.rollen}</span>
+        <button onclick="changeRollen(${i},1)">+</button>
+      </div>
+      <input type="number" placeholder="0.00" step="0.01" min="0" value="${rij.prijsPerRol}"
+        oninput="inkoopRijen[${i}].prijsPerRol=this.value;renderInkoopRijen()" style="margin-bottom:0" />
+      <div class="ppb-chip" style="font-size:15px">${ppb ? '€' + ppb.toFixed(2) : '<span style=\'color:var(--text3)\'>—</span>'}</div>
+      ${inkoopRijen.length > 1
+        ? `<button onclick="removeInkoopRij(${i})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:18px;line-height:1">✕</button>`
+        : '<div></div>'}
+    </div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Totaal bar
+  const totaalBar = document.getElementById('inkoop-totaal-bar');
+  const totaalTekst = document.getElementById('inkoop-totaal-tekst');
+  const geldige = inkoopRijen.filter(r => r.merk && r.smaak && parseFloat(r.prijsPerRol) > 0);
+  if (geldige.length > 0) {
+    const totaalRollen = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1), 0);
+    const totaalBakjes = totaalRollen * BAKJES_PER_ROL;
+    const totaalWaarde = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1) * parseFloat(r.prijsPerRol), 0);
+    totaalBar.style.display = 'block';
+    totaalTekst.innerHTML = `${geldige.length} smaak${geldige.length > 1 ? 'en' : ''} &nbsp;|&nbsp; <strong>${totaalRollen} rollen</strong> &nbsp;|&nbsp; <strong>${totaalBakjes} bakjes</strong> &nbsp;|&nbsp; Totaal: <strong>€${totaalWaarde.toFixed(2)}</strong>`;
+  } else {
+    totaalBar.style.display = 'none';
+  }
+}
+
+function slaVariantOp(merk, smaak, aantalBakjes, prijsPerBakje) {
+  const k = key(merk, smaak);
+  if (!state.varianten[k]) {
+    state.varianten[k] = { merk, smaak, voorraad: 0, inkoop_prijs: prijsPerBakje, totaal_verkocht: 0, totaal_omzet: 0 };
+  } else {
+    const hv = state.varianten[k].voorraad;
+    if (hv <= 0) {
+      state.varianten[k].inkoop_prijs = prijsPerBakje;
+    } else {
+      const gem = ((hv * state.varianten[k].inkoop_prijs) + (aantalBakjes * prijsPerBakje)) / (hv + aantalBakjes);
+      state.varianten[k].inkoop_prijs = Math.round(gem * 10000) / 10000;
+    }
+  }
+  state.varianten[k].voorraad += aantalBakjes;
+}
+
+function verwerkInkoop() {
+  const onvolledig = inkoopRijen.filter(r => !r.merk.trim() || !r.smaak.trim() || !r.prijsPerRol || parseFloat(r.prijsPerRol) <= 0);
+  if (onvolledig.length > 0) { alert('Vul alle rijen volledig in (merk, smaak en prijs per rol).'); return; }
+
+  const datum = new Date().toLocaleDateString('nl-NL');
+  inkoopRijen.forEach(rij => {
+    const merk = rij.merk.trim();
+    const smaak = rij.smaak.trim();
+    const prijsPerRol = parseFloat(rij.prijsPerRol);
+    const prijsPerBakje = Math.round((prijsPerRol / BAKJES_PER_ROL) * 10000) / 10000;
+    const aantalBakjes = parseInt(rij.rollen) * BAKJES_PER_ROL;
+    slaVariantOp(merk, smaak, aantalBakjes, prijsPerBakje);
+    state.inkoop.push({ merk, smaak, aantal: aantalBakjes, prijs: prijsPerBakje, prijsPerRol, rollen: parseInt(rij.rollen), datum });
+  });
+
+  saveState(); render(); updateMerkDatalist();
+  inkoopRijen = [{ merk: '', smaak: '', rollen: 1, prijsPerRol: '' }];
+  renderInkoopRijen();
+  alert(`✓ ${inkoopRijen.length === 1 ? 'Inkoop' : 'Inkopen'} verwerkt!`);
+}
+
+// Oud los-toevoegen (nog gebruikt via historie delete)
+function addInkoop() {
+  const merk = document.getElementById('in-merk') ? document.getElementById('in-merk').value.trim() : '';
+  const smaak = document.getElementById('in-smaak') ? document.getElementById('in-smaak').value.trim() : '';
+  const aantal = parseInt(document.getElementById('in-aantal') ? document.getElementById('in-aantal').value : '');
+  const prijs = parseFloat(document.getElementById('in-prijs') ? document.getElementById('in-prijs').value : '');
+  if (!merk || !smaak || !aantal || isNaN(prijs)) { alert('Vul alle velden in.'); return; }
+  slaVariantOp(merk, smaak, aantal, prijs);
+  state.inkoop.push({ merk, smaak, aantal, prijs, datum: new Date().toLocaleDateString('nl-NL') });
+  saveState(); render();
+  ['in-merk','in-smaak','in-aantal','in-prijs'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  updateMerkDatalist();
+}
+
+function deleteInkoop(i) {
+  if (!confirm('Verwijderen?')) return;
+  const item = state.inkoop[i];
+  const k = key(item.merk, item.smaak);
+  if (state.varianten[k]) {
+    state.varianten[k].voorraad -= item.aantal;
+    if (state.varianten[k].voorraad <= 0 && state.varianten[k].totaal_verkocht === 0) {
+      delete state.varianten[k];
+    } else {
+      const rest = state.inkoop.filter((r, idx) => idx !== i && key(r.merk, r.smaak) === k);
+      if (rest.length > 0) state.varianten[k].inkoop_prijs = rest[rest.length - 1].prijs;
+    }
+  }
+  state.inkoop.splice(i, 1);
+  saveState(); render();
+}
+
+// --- VERKOOP ---
+let multiItems = [{ merk: '', smaak: '', qty: 1 }];
+let saleBetaalMulti = 'cash';
+let regTypeMulti = 'bevestigd';
+let bezorgkosten = false;
+let aangepastePrijs = null;
+
+
+// --- PRIJS OPTIES & BEZORGING ---
+const BEZORG_DREMPEL = 25;
+const BEZORG_PRIJS = 5;
+
+// Vaste klant prijzen per qty
+const VASTE_KLANT_PRIJZEN = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 25, 6: 30, 7: 35, 8: 40, 9: 45, 10: 40 };
+const VASTE_KLANT_MIX = 45;
+
+let prijsModus = 'standaard'; // 'standaard' | 'vasteKlant' | 'aangepast'
+let aangepastePrijsWaarde = null;
+let rolAantal = 1; // voor meerdere rollen
+
+function getStandaardPrijs() {
+  if (isMix) return MIX_PRIJS * rolAantal;
+  if (saleQty === 10) return (PRIJZEN[10] || 45) * rolAantal;
+  return berekenStandaardPrijs(saleQty);
+}
+
+function getVasteKlantPrijs() {
+  if (isMix) return VASTE_KLANT_MIX * rolAantal;
+  if (saleQty === 10) return VASTE_KLANT_PRIJZEN[10] * rolAantal;
+  return VASTE_KLANT_PRIJZEN[saleQty] !== undefined ? VASTE_KLANT_PRIJZEN[saleQty] : saleQty * 5;
+}
+
+function getActueleVerkoop() {
+  let basis;
+  if (prijsModus === 'standaard') basis = getStandaardPrijs();
+  else if (prijsModus === 'vasteKlant') basis = getVasteKlantPrijs();
+  else basis = aangepastePrijsWaarde || getStandaardPrijs();
+  const bezorg = bezorgkosten ? BEZORG_PRIJS : 0;
+  return { basis, bezorg, totaal: basis + bezorg };
+}
+
+function renderPrijsOpties() {
+  const el = document.getElementById('prijs-opties');
+  if (!el) return;
+
+  const std = getStandaardPrijs();
+  const vk = getVasteKlantPrijs();
+  const { basis, bezorg, totaal } = getActueleVerkoop();
+
+  // Rol aantal selector (alleen bij Rol en Mix rol)
+  const isRol = (saleQty === 10);
+  const rolAantalHtml = isRol ? `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+      <span style="font-size:12px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.3px">Aantal</span>
+      <button onclick="changeRolAantal(-1)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">−</button>
+      <span style="font-weight:700;font-size:16px;min-width:20px;text-align:center;font-family:'DM Mono',monospace">${rolAantal}</span>
+      <button onclick="changeRolAantal(1)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">+</button>
+      <span style="font-size:13px;color:var(--text3)">${rolAantal} × ${isMix ? 'Mix rol' : 'Rol'}</span>
+    </div>` : '';
+
+  // Prijs knoppen
+  const stdActief = prijsModus === 'standaard';
+  const vkActief = prijsModus === 'vasteKlant';
+  const aangActief = prijsModus === 'aangepast';
+
+  el.innerHTML = `
+    ${rolAantalHtml}
+    <div style="font-size:12px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Prijs</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+      <button class="prijs-optie-btn${stdActief ? ' actief' : ''}" onclick="setPrijsModus('standaard')">
+        €${std % 1 === 0 ? std : std.toFixed(2)}<span class="prijs-optie-sub">standaard</span>
+      </button>
+      <button class="prijs-optie-btn${vkActief ? ' actief' : ''}" onclick="setPrijsModus('vasteKlant')">
+        €${vk}<span class="prijs-optie-sub">vaste klant</span>
+      </button>
+      <button class="prijs-optie-btn${aangActief ? ' actief' : ''}" onclick="setPrijsModus('aangepast')">
+        ${aangActief && aangepastePrijsWaarde ? '€' + aangepastePrijsWaarde : 'Aangepast'}
+        <span class="prijs-optie-sub">${aangActief && aangepastePrijsWaarde ? 'aangepast' : 'vrij invullen'}</span>
+      </button>
+      <button class="bezorg-btn${bezorgkosten ? ' actief' : ''}" onclick="toggleBezorging()">
+        🛵 ${bezorgkosten ? `+€${BEZORG_PRIJS}` : 'Bezorging'}
+      </button>
+    </div>
+    ${aangActief ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <span style="font-size:14px;color:var(--text2)">€</span>
+      <input type="number" id="aangepast-prijs-input" placeholder="bijv. 7.20" step="0.10" min="0"
+        value="${aangepastePrijsWaarde || ''}" style="width:130px;margin-bottom:0"
+        oninput="aangepastePrijsWaarde=parseFloat(this.value)||null;renderPrijsOpties()" autofocus />
+    </div>` : ''}
+    <div class="prijs-totaal-preview">
+      Totaal: <strong>€${totaal % 1 === 0 ? totaal : totaal.toFixed(2)}</strong>
+      ${bezorgkosten ? `<span class="muted" style="font-size:12px"> (€${basis % 1 === 0 ? basis : basis.toFixed(2)} + €${bezorg} bezorging)</span>` : ''}
+      ${rolAantal > 1 ? `<span class="muted" style="font-size:12px"> — ${rolAantal}× ${isMix ? 'mix rol' : 'rol'}</span>` : ''}
+    </div>
+  `;
+}
+
+function setPrijsModus(modus) {
+  prijsModus = modus;
+  if (modus !== 'aangepast') aangepastePrijsWaarde = null;
+  renderPrijsOpties();
+  if (modus === 'aangepast') {
+    setTimeout(() => { const inp = document.getElementById('aangepast-prijs-input'); if(inp) inp.focus(); }, 50);
+  }
+}
+
+function changeRolAantal(d) {
+  rolAantal = Math.max(1, rolAantal + d);
+  renderPrijsOpties();
+}
+
+function toggleBezorging() {
+  bezorgkosten = !bezorgkosten;
+  renderPrijsOpties();
+}
+
+
+function selectPriceBtn(btn, qty, prijs, mix) {
+  document.querySelectorAll('.price-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  saleQty = qty; salePrijs = prijs; isMix = mix;
+
+  // 1 bakje = enkelvoudig, mix rol = mix builder, rest = multi smaak
+  const isSingle = qty === 1 && !mix;
+  const isMulti = !mix && qty > 1;
+
+  document.getElementById('single-sale').style.display = isSingle ? 'block' : 'none';
+  document.getElementById('multi-sale').style.display = isMulti ? 'block' : 'none';
+  document.getElementById('mix-sale').style.display = mix ? 'block' : 'none';
+
+  if (mix) buildMixRows();
+  if (isMulti) {
+    multiItems = [{ merk: '', smaak: '', qty: 1 }];
+    document.getElementById('multi-sale-titel').textContent = `Kies je smaken (totaal ${qty} stuks)`;
+    renderMultiRows();
+  }
+  aangepastePrijs = null;
+  aangepastePrijsWaarde = null;
+  bezorgkosten = false;
+  prijsModus = 'standaard';
+  rolAantal = 1;
+  renderPrijsOpties();
+}
+
+
+
+function setRegTypeMulti(type) {
+  regTypeMulti = type;
+  const b = document.getElementById('reg-bevestigd-multi');
+  const c = document.getElementById('reg-concept-multi');
+  if (type === 'bevestigd') {
+    b.className = 'btn btn-primary'; b.style.cssText = '';
+    c.className = 'btn'; c.style.cssText = 'border-color:#f0c040;color:#7a3d00';
+  } else {
+    c.className = 'btn btn-primary'; c.style.cssText = 'background:#f0c040;color:#fff;border-color:transparent';
+    b.className = 'btn'; b.style.cssText = '';
+  }
+}
+
+function addMultiRow() {
+  multiItems.push({ merk: '', smaak: '', qty: 1 });
+  renderMultiRows();
+}
+
+function removeMultiRow(i) {
+  multiItems.splice(i, 1);
+  renderMultiRows();
+}
+
+function changeMultiQty(i, d) {
+  multiItems[i].qty = Math.max(1, (multiItems[i].qty || 1) + d);
+  renderMultiRows();
+}
+
+function renderMultiRows() {
+  const varKeys = Object.keys(state.varianten);
+  const totaal = multiItems.reduce((a, m) => a + (m.qty || 1), 0);
+  const over = saleQty - totaal;
+  const kleur = over === 0 ? 'var(--accent)' : over < 0 ? 'var(--danger)' : 'var(--text2)';
+
+  // Bouw merk opties
+  const merken = [...new Set([...VASTE_MERKEN, ...Object.values(state.varianten).map(v => v.merk)])].sort();
+
+  document.getElementById('multi-rows').innerHTML = multiItems.map((item, i) => {
+    // Smaken voor gekozen merk
+    const smaken = item.merk
+      ? [...new Set([...(VASTE_SMAKEN[item.merk] || []), ...Object.values(state.varianten).filter(v => v.merk === item.merk).map(v => v.smaak)])]
+      : [];
+    const voorraad = item.merk && item.smaak ? (state.varianten[key(item.merk, item.smaak)]?.voorraad || 0) : null;
+    const mk = getMerkKlasse(item.merk);
+    return `<div class="mix-row" style="margin-bottom:8px">
+      <select onchange="multiItems[${i}].merk=this.value;multiItems[${i}].smaak='';renderMultiRows()" style="flex:1">
+        <option value="">— merk —</option>
+        ${merken.map(m => `<option value="${m}" ${m===item.merk?'selected':''}>${m}</option>`).join('')}
+      </select>
+      <select onchange="multiItems[${i}].smaak=this.value;renderMultiRows()" style="flex:1.5">
+        <option value="">— smaak —</option>
+        ${smaken.map(s => `<option value="${s}" ${s===item.smaak?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <div class="mix-count">
+        <button onclick="changeMultiQty(${i},-1)">−</button>
+        <span>${item.qty}</span>
+        <button onclick="changeMultiQty(${i},1)">+</button>
+      </div>
+      ${voorraad !== null ? `<span style="font-size:11px;color:var(--text3);min-width:50px">${voorraad} op voorraad</span>` : '<span style="min-width:50px"></span>'}
+      ${multiItems.length > 1 ? `<button class="btn btn-sm btn-danger" onclick="removeMultiRow(${i})">✕</button>` : ''}
+    </div>`;
+  }).join('');
+
+  document.getElementById('multi-total').innerHTML =
+    `Totaal: <strong style="color:${kleur}">${totaal} / ${saleQty}</strong>${over === 0 ? ' ✓' : over < 0 ? ` — <span style="color:var(--danger)">${Math.abs(over)} teveel!</span>` : ''}`;
+}
+
+function addMultiVerkoop() {
+  const totaal = multiItems.reduce((a, m) => a + (m.qty || 1), 0);
+  if (totaal !== saleQty) { alert(`Kies precies ${saleQty} stuks. Je hebt er nu ${totaal}.`); return; }
+  if (multiItems.some(m => !m.merk || !m.smaak)) { alert('Kies voor elke rij een merk en smaak.'); return; }
+
+  // Check voorraad
+  const needed = {};
+  multiItems.forEach(m => { const k = key(m.merk, m.smaak); needed[k] = (needed[k]||0) + m.qty; });
+  for (const [k, qty] of Object.entries(needed)) {
+    if (!state.varianten[k] || state.varianten[k].voorraad < qty) {
+      const v = state.varianten[k];
+      alert('Niet genoeg voorraad voor ' + (v ? v.merk+' '+v.smaak : k) + '!'); return;
+    }
+  }
+
+  const snapItems = multiItems.map(m => { return { merk: m.merk, smaak: m.smaak, qty: m.qty }; });
+
+  if (regTypeMulti === 'concept') {
+    state.concepten.push({ type: 'multi', items: snapItems, totaal: salePrijs, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaalMulti, timestamp: Date.now() });
+    saveState(); render();
+    multiItems = [{ merk: '', smaak: '', qty: 1 }]; renderMultiRows();
+    return;
+  }
+
+  // Verwerk
+  for (const [k, qty] of Object.entries(needed)) {
+    state.varianten[k].voorraad -= qty;
+    state.varianten[k].totaal_verkocht += qty;
+    const aandeel = salePrijs * qty / saleQty;
+    state.varianten[k].totaal_omzet += aandeel;
+  }
+  const { totaal: mTotaal, bezorg: mBezorg, basis: mBasis } = getActueleVerkoop();
+  const pofNaamMulti = saleBetaalMulti === 'pof' ? (document.getElementById('pof-naam-multi')?.value.trim() || 'Onbekend') : null;
+  state.verkoop.push({ type: 'multi', items: snapItems, totaal: mTotaal, basis: mBasis, bezorgkosten: mBezorg, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaalMulti, pofNaam: pofNaamMulti });
+  saveState(); render();
+  multiItems = [{ merk: '', smaak: '', qty: 1 }]; renderMultiRows();
+  aangepastePrijs = null; aangepastePrijsWaarde = null; bezorgkosten = false; prijsModus = 'standaard'; renderPrijsOpties(); updatePofBadge();
+}
+
+function getMerken() { return [...new Set(Object.values(state.varianten).map(v => v.merk))].sort(); }
+function getSmaken(merk) { return Object.values(state.varianten).filter(v => v.merk === merk).map(v => v.smaak).sort(); }
+
+function updateVkMerkSelect() {
+  const sel = document.getElementById('vk-merk');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— kies merk —</option>';
+  getMerken().forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; if(m===cur) o.selected=true; sel.appendChild(o); });
+  updateSmaakSelect();
+}
+
+function updateSmaakSelect() {
+  const merk = document.getElementById('vk-merk').value;
+  const sel = document.getElementById('vk-smaak');
+  sel.innerHTML = '<option value="">— kies smaak —</option>';
+  if (!merk) return;
+  getSmaken(merk).forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+}
+
+function addVerkoop() {
+  const merk = document.getElementById('vk-merk').value;
+  const smaak = document.getElementById('vk-smaak').value;
+  if (!merk || !smaak) { alert('Kies een merk en smaak.'); return; }
+  const k = key(merk, smaak);
+  if (!state.varianten[k]) { alert('Variant niet gevonden.'); return; }
+  if (regType === 'concept') {
+    const { totaal: cTotaal, bezorg: cBezorg, basis: cBasis } = getActueleVerkoop();
+    state.concepten.push({ type: 'normaal', items: [{ merk, smaak, qty: saleQty }], totaal: cTotaal, basis: cBasis, bezorgkosten: cBezorg, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaal, timestamp: Date.now() });
+    saveState(); render(); updateVkMerkSelect();
+    aangepastePrijs = null; bezorgkosten = false; renderPrijsOpties();
+    return;
+  }
+  if (state.varianten[k].voorraad < saleQty) { alert('Niet genoeg voorraad! Nog ' + state.varianten[k].voorraad + ' stuks.'); return; }
+  state.varianten[k].voorraad -= saleQty;
+  state.varianten[k].totaal_verkocht += saleQty;
+  state.varianten[k].totaal_omzet += salePrijs;
+  const { totaal: vkTotaal, bezorg: vkBezorg, basis: vkBasis } = getActueleVerkoop();
+  const pofNaamVal = saleBetaal === 'pof' ? (document.getElementById('pof-naam')?.value.trim() || 'Onbekend') : null;
+  state.verkoop.push({ type: 'normaal', items: [{ merk, smaak, qty: saleQty }], totaal: vkTotaal, basis: vkBasis, bezorgkosten: vkBezorg, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaal, pofNaam: pofNaamVal });
+  saveState(); render(); updateVkMerkSelect();
+  aangepastePrijs = null; aangepastePrijsWaarde = null; bezorgkosten = false; prijsModus = 'standaard'; renderPrijsOpties(); updatePofBadge();
+}
+
+// Mix rol
+function buildMixRows() {
+  if (mixItems.length === 0) mixItems = [{ key: '', qty: 1 }];
+  renderMixRows();
+}
+
+function addMixRow() { mixItems.push({ key: '', qty: 1 }); renderMixRows(); }
+
+function renderMixRows() {
+  const varKeys = Object.keys(state.varianten);
+  const optHtml = varKeys.map(k => { const v = state.varianten[k]; return `<option value="${k}">${v.merk} — ${v.smaak} (${v.voorraad} st)</option>`; }).join('');
+  document.getElementById('mix-rows').innerHTML = mixItems.map((item, i) => `
+    <div class="mix-row">
+      <select onchange="mixItems[${i}].key=this.value;updateMixTotal()">
+        <option value="">— kies smaak —</option>${optHtml.replace(`value="${item.key}"`, `value="${item.key}" selected`)}
+      </select>
+      <div class="mix-count">
+        <button onclick="changeMixQty(${i},-1)">−</button>
+        <span>${item.qty}</span>
+        <button onclick="changeMixQty(${i},1)">+</button>
+      </div>
+      ${mixItems.length > 1 ? `<button class="btn btn-sm btn-danger" onclick="removeMixRow(${i})">✕</button>` : ''}
+    </div>
+  `).join('');
+  updateMixTotal();
+}
+
+function changeMixQty(i, d) {
+  mixItems[i].qty = Math.max(1, mixItems[i].qty + d);
+  renderMixRows();
+}
+
+function removeMixRow(i) { mixItems.splice(i, 1); renderMixRows(); }
+
+function getMixTotal() { return mixItems.reduce((a, m) => a + m.qty, 0); }
+
+function updateMixTotal() {
+  const tot = getMixTotal();
+  const el = document.getElementById('mix-total');
+  el.className = 'mix-total' + (tot === 10 ? ' ok' : tot > 10 ? ' over' : '');
+  el.innerHTML = `Totaal: <strong>${tot} / 10</strong>${tot === 10 ? ' ✓' : tot > 10 ? ' — te veel!' : ''}`;
+}
+
+function addMixVerkoop() {
+  if (getMixTotal() !== 10) { alert('Een mix rol moet precies 10 stuks zijn.'); return; }
+  if (mixItems.some(m => !m.key)) { alert('Kies voor elke rij een smaak.'); return; }
+  // check voorraad
+  const needed = {};
+  mixItems.forEach(m => { needed[m.key] = (needed[m.key]||0) + m.qty; });
+  for (const [k, qty] of Object.entries(needed)) {
+    if (!state.varianten[k] || state.varianten[k].voorraad < qty) {
+      const v = state.varianten[k]; alert('Niet genoeg voorraad voor ' + (v ? v.merk+' '+v.smaak : k) + '.'); return;
+    }
+  }
+  if (regTypeMix === 'concept') {
+    const snapItems = mixItems.filter(m => m.key).map(m => { const v = state.varianten[m.key]; return { merk: v.merk, smaak: v.smaak, qty: m.qty }; });
+    const { totaal: mcTotaal } = getActueleVerkoop();
+    state.concepten.push({ type: 'mix', items: snapItems, totaal: mcTotaal, rolAantal, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaalMix, timestamp: Date.now() });
+    saveState(); render();
+    mixItems = [{ key: '', qty: 1 }]; renderMixRows();
+    prijsModus = 'standaard'; rolAantal = 1; bezorgkosten = false; renderPrijsOpties();
+    return;
+  }
+  // verwerk
+  const itemsSnap = [];
+  for (const [k, qty] of Object.entries(needed)) {
+    state.varianten[k].voorraad -= qty;
+    state.varianten[k].totaal_verkocht += qty;
+    state.varianten[k].totaal_omzet += (MIX_PRIJS * qty / 10);
+    const v = state.varianten[k];
+    itemsSnap.push({ merk: v.merk, smaak: v.smaak, qty });
+  }
+  const { totaal: mixTotaal, bezorg: mixBezorg, basis: mixBasis } = getActueleVerkoop();
+  const pofNaamMix = saleBetaalMix === 'pof' ? (document.getElementById('pof-naam-mix')?.value.trim() || 'Onbekend') : null;
+  state.verkoop.push({ type: 'mix', items: itemsSnap, totaal: mixTotaal, basis: mixBasis, bezorgkosten: mixBezorg, rolAantal, datum: new Date().toLocaleDateString('nl-NL'), betaal: saleBetaalMix, pofNaam: pofNaamMix });
+  saveState(); render();
+  mixItems = [{ key: '', qty: 1 }]; renderMixRows();
+  prijsModus = 'standaard'; rolAantal = 1; bezorgkosten = false; aangepastePrijsWaarde = null; renderPrijsOpties(); updatePofBadge();
+}
+
+function deleteVerkoop(i) {
+  if (!confirm('Verkoop ongedaan maken?')) return;
+  const sale = state.verkoop[i];
+  sale.items.forEach(item => {
+    const k = key(item.merk, item.smaak);
+    if (state.varianten[k]) {
+      state.varianten[k].voorraad += item.qty;
+      state.varianten[k].totaal_verkocht -= item.qty;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      state.varianten[k].totaal_omzet -= aandeel;
+    }
+  });
+  state.verkoop.splice(i, 1);
+  saveState(); render();
+}
+
+
+// --- POFLIJST ---
+function renderPoflijst() {
+  const openstaand = state.verkoop.filter(s => s.betaal === 'pof' && !s.pofBetaald);
+  const banner = document.getElementById('pof-totaal-banner');
+  const container = document.getElementById('pof-personen');
+  if (!container) return;
+
+  if (openstaand.length === 0) {
+    banner.style.display = 'none';
+    container.innerHTML = '<div class="empty">✓ Niemand staat nog op de pof!</div>';
+    return;
+  }
+
+  // Groepeer per naam
+  const perPersoon = {};
+  openstaand.forEach((sale, idx) => {
+    const naam = sale.pofNaam || 'Onbekend';
+    if (!perPersoon[naam]) perPersoon[naam] = [];
+    perPersoon[naam].push({ sale, idx: state.verkoop.indexOf(sale) });
+  });
+
+  const totaal = openstaand.reduce((a, s) => a + s.totaal, 0);
+  banner.style.display = 'flex';
+  document.getElementById('pof-totaal-bedrag').textContent = '€' + totaal.toFixed(2).replace('.', ',');
+
+  container.innerHTML = Object.entries(perPersoon).map(([naam, items]) => {
+    const persoonTotaal = items.reduce((a, {sale}) => a + sale.totaal, 0);
+    const rows = items.map(({sale, idx}) => {
+      const omschrijving = sale.type === 'mix'
+        ? 'Mix rol: ' + sale.items.map(it => it.merk+' '+it.smaak+' ('+it.qty+'x)').join(', ')
+        : sale.type === 'multi'
+        ? sale.items.map(it => it.merk+' '+it.smaak+' ('+it.qty+'x)').join(', ')
+        : sale.items[0].merk + ' — ' + sale.items[0].smaak + ' × ' + sale.items[0].qty;
+      return `<tr>
+        <td style="color:var(--text3);font-size:13px">${sale.datum}</td>
+        <td>${omschrijving}</td>
+        <td style="font-weight:600;font-family:'DM Mono',monospace">${fmt(sale.totaal)}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="markeerBetaald(${idx})">✓ Betaald</button></td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="card" style="border-left:3px solid #f0c040">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <div>
+          <div style="font-weight:600;font-size:16px">${naam}</div>
+          <div style="font-size:13px;color:var(--text3)">${items.length} bestelling${items.length > 1 ? 'en' : ''} openstaand</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:20px;font-weight:700;font-family:'DM Mono',monospace;color:#7a3d00">${fmt(persoonTotaal)}</div>
+          <button class="btn btn-primary btn-sm" onclick="markeerAllesBetaald('${naam}')">✓ Alles betaald</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Datum</th><th>Bestelling</th><th>Bedrag</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+  }).join('');
+}
+
+function markeerBetaald(idx) {
+  state.verkoop[idx].pofBetaald = true;
+  state.verkoop[idx].pofBetaaldDatum = new Date().toLocaleDateString('nl-NL');
+  saveState(); renderPoflijst(); render();
+  // Update tab badge
+  updatePofBadge();
+}
+
+function markeerAllesBetaald(naam) {
+  if (!confirm(`Alle bestellingen van ${naam} als betaald markeren?`)) return;
+  state.verkoop.forEach((sale, idx) => {
+    if (sale.betaal === 'pof' && !sale.pofBetaald && (sale.pofNaam || 'Onbekend') === naam) {
+      state.verkoop[idx].pofBetaald = true;
+      state.verkoop[idx].pofBetaaldDatum = new Date().toLocaleDateString('nl-NL');
+    }
+  });
+  saveState(); renderPoflijst(); render();
+  updatePofBadge();
+}
+
+function updatePofBadge() {
+  const openstaand = state.verkoop.filter(s => s.betaal === 'pof' && !s.pofBetaald).length;
+  const tab = document.getElementById('tab-poflijst');
+  if (tab) tab.textContent = openstaand > 0 ? `📋 Pof (${openstaand})` : '📋 Pof';
+}
+
+// --- BEWERK VERKOOP ---
+let bewerkIdx = null;
+
+function bewerkVerkoop(idx) {
+  const sale = state.verkoop[idx];
+  bewerkIdx = idx;
+
+  // Ga naar verkoop tab
+  showTab('verkoop');
+
+  // Zet type
+  const qty = sale.items.reduce((a, it) => a + it.qty, 0);
+  const isMixSale = sale.type === 'mix';
+
+  // Simuleer klik op juiste knop
+  if (isMixSale) {
+    selectPriceBtn(null, 10, MIX_PRIJS, true, true);
+    // Vul mix items in
+    mixItems = sale.items.map(it => ({ key: it.merk + '||' + it.smaak, qty: it.qty }));
+    renderMixRows();
+  } else if (sale.type === 'multi' || (sale.items.length > 1)) {
+    selectPriceBtn(null, qty, berekenStandaardPrijs(qty), false, true);
+    multiItems = sale.items.map(it => ({ merk: it.merk, smaak: it.smaak, qty: it.qty }));
+    renderMultiRows();
+  } else {
+    selectPriceBtn(null, qty, berekenStandaardPrijs(qty), false, true);
+    setTimeout(() => {
+      const merkEl = document.getElementById('vk-merk');
+      if (merkEl) { merkEl.value = sale.items[0].merk; updateSmaakSelect(); }
+      setTimeout(() => {
+        const smaakEl = document.getElementById('vk-smaak');
+        if (smaakEl) smaakEl.value = sale.items[0].smaak;
+      }, 50);
+    }, 50);
+  }
+
+  // Zet betaalmethode
+  saleBetaal = sale.betaal || 'cash';
+  saleBetaalMulti = sale.betaal || 'cash';
+  saleBetaalMix = sale.betaal || 'cash';
+
+  // Zet prijs
+  aangepastePrijsWaarde = sale.totaal;
+  prijsModus = 'aangepast';
+  renderPrijsOpties();
+
+  // Pof naam
+  if (sale.betaal === 'pof' && sale.pofNaam) {
+    setTimeout(() => {
+      const naamEl = document.getElementById('pof-naam');
+      if (naamEl) naamEl.value = sale.pofNaam;
+      const wrap = document.getElementById('pof-naam-wrap');
+      if (wrap) wrap.style.display = 'block';
+    }, 100);
+  }
+
+  // Verander toevoegen knop naar opslaan
+  document.querySelectorAll('.btn-primary[onclick*="addVerkoop"], .btn-primary[onclick*="addMultiVerkoop"], .btn-primary[onclick*="addMixVerkoop"]').forEach(btn => {
+    btn.textContent = '✓ Wijzigingen opslaan';
+    btn.style.background = '#b35a00';
+  });
+}
+
+function slaWijzigingenOp() {
+  if (bewerkIdx === null) return;
+  // Verwijder de oude verkoop maar herstel voorraad
+  deleteVerkoop(bewerkIdx);
+  bewerkIdx = null;
+  // Voeg opnieuw toe
+  if (isMix) addMixVerkoop();
+  else if (document.getElementById('multi-sale').style.display !== 'none') addMultiVerkoop();
+  else addVerkoop();
+}
+
+
+// --- HISTORISCHE DATA IMPORT ---
+const HISTORISCHE_VERKOOP = [{"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 17-04-2026", "qty": 122}], "totaal": 580.0, "datum": "17-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 18-04-2026", "qty": 30}], "totaal": 222.5, "datum": "18-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 19-04-2026", "qty": 28}], "totaal": 205.0, "datum": "19-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 20-04-2026", "qty": 51}], "totaal": 307.5, "datum": "20-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 21-04-2026", "qty": 30}], "totaal": 210.0, "datum": "21-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 22-04-2026", "qty": 21}], "totaal": 122.5, "datum": "22-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 23-04-2026", "qty": 55}], "totaal": 300.0, "datum": "23-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 24-04-2026", "qty": 28}], "totaal": 177.5, "datum": "24-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 25-04-2026", "qty": 33}], "totaal": 228.5, "datum": "25-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 26-04-2026", "qty": 22}], "totaal": 167.5, "datum": "26-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 27-04-2026", "qty": 26}], "totaal": 151.0, "datum": "27-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 28-04-2026", "qty": 28}], "totaal": 272.5, "datum": "28-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 29-04-2026", "qty": 31}], "totaal": 202.5, "datum": "29-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 30-04-2026", "qty": 37}], "totaal": 217.5, "datum": "30-04-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 01-05-2026", "qty": 28}], "totaal": 155.0, "datum": "01-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 02-05-2026", "qty": 28}], "totaal": 122.5, "datum": "02-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 03-05-2026", "qty": 38}], "totaal": 215.0, "datum": "03-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 04-05-2026", "qty": 25}], "totaal": 162.5, "datum": "04-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 05-05-2026", "qty": 42}], "totaal": 227.5, "datum": "05-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 06-05-2026", "qty": 78}], "totaal": 470.0, "datum": "06-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 07-05-2026", "qty": 55}], "totaal": 274.5, "datum": "07-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 08-05-2026", "qty": 92}], "totaal": 517.5, "datum": "08-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 09-05-2026", "qty": 26}], "totaal": 142.5, "datum": "09-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 10-05-2026", "qty": 22}], "totaal": 137.5, "datum": "10-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 11-05-2026", "qty": 20}], "totaal": 132.5, "datum": "11-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 12-05-2026", "qty": 59}], "totaal": 335.0, "datum": "12-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 13-05-2026", "qty": 58}], "totaal": 305.0, "datum": "13-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 14-05-2026", "qty": 25}], "totaal": 130.0, "datum": "14-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 15-05-2026", "qty": 28}], "totaal": 161.0, "datum": "15-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 16-05-2026", "qty": 12}], "totaal": 74.1, "datum": "16-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 17-05-2026", "qty": 45}], "totaal": 238.5, "datum": "17-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 18-05-2026", "qty": 55}], "totaal": 285.0, "datum": "18-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 19-05-2026", "qty": 64}], "totaal": 312.5, "datum": "19-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 20-05-2026", "qty": 38}], "totaal": 242.5, "datum": "20-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 21-05-2026", "qty": 28}], "totaal": 190.0, "datum": "21-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 22-05-2026", "qty": 21}], "totaal": 142.5, "datum": "22-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 23-05-2026", "qty": 33}], "totaal": 208.0, "datum": "23-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 24-05-2026", "qty": 48}], "totaal": 250.5, "datum": "24-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 25-05-2026", "qty": 24}], "totaal": 142.5, "datum": "25-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 26-05-2026", "qty": 67}], "totaal": 367.5, "datum": "26-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 27-05-2026", "qty": 62}], "totaal": 330.0, "datum": "27-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 28-05-2026", "qty": 27}], "totaal": 150.0, "datum": "28-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 29-05-2026", "qty": 76}], "totaal": 405.0, "datum": "29-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 30-05-2026", "qty": 20}], "totaal": 115.0, "datum": "30-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 31-05-2026", "qty": 60}], "totaal": 295.0, "datum": "31-05-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 01-06-2026", "qty": 44}], "totaal": 240.0, "datum": "01-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 02-06-2026", "qty": 60}], "totaal": 352.5, "datum": "02-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 03-06-2026", "qty": 28}], "totaal": 172.5, "datum": "03-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 04-06-2026", "qty": 15}], "totaal": 120.0, "datum": "04-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 05-06-2026", "qty": 50}], "totaal": 297.5, "datum": "05-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 06-06-2026", "qty": 22}], "totaal": 105.0, "datum": "06-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 07-06-2026", "qty": 25}], "totaal": 150.0, "datum": "07-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 08-06-2026", "qty": 42}], "totaal": 210.0, "datum": "08-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 09-06-2026", "qty": 31}], "totaal": 180.0, "datum": "09-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 10-06-2026", "qty": 46}], "totaal": 250.0, "datum": "10-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 11-06-2026", "qty": 32}], "totaal": 192.5, "datum": "11-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 12-06-2026", "qty": 102}], "totaal": 490.0, "datum": "12-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 13-06-2026", "qty": 25}], "totaal": 157.5, "datum": "13-06-2026", "betaal": "cash"}, {"type": "normaal", "items": [{"merk": "Historisch", "smaak": "Dagtotaal 14-06-2026", "qty": 38}], "totaal": 195.0, "datum": "14-06-2026", "betaal": "cash"}];
+const HISTORISCH_INKOOP_PRIJS = 2.00;
+
+function importHistorischeData() {
+  const al_aanwezig = state.verkoop.some(s => s.items[0] && s.items[0].merk === 'Historisch');
+  if (al_aanwezig) {
+    alert('Historische data is al geïmporteerd. Verwijder eerst de bestaande "Historisch" regels via de verkoophistorie als je opnieuw wilt importeren.');
+    return;
+  }
+  if (!confirm(`Dit voegt ${HISTORISCHE_VERKOOP.length} dagen historische omzet/winst toe (17 april – 14 juni 2026). Dit beïnvloedt je voorraad niet. Doorgaan?`)) return;
+
+  // Maak Historisch variant aan (voorraad blijft 0, alleen voor winstberekening)
+  const k = key('Historisch', 'Verzameld');
+  if (!state.varianten[k]) {
+    state.varianten[k] = { merk: 'Historisch', smaak: 'Verzameld', voorraad: 0, inkoop_prijs: HISTORISCH_INKOOP_PRIJS, totaal_verkocht: 0, totaal_omzet: 0 };
+  }
+
+  HISTORISCHE_VERKOOP.forEach(regel => {
+    // Pas smaak aan zodat het matcht met de aangemaakte variant
+    const item = { merk: 'Historisch', smaak: 'Verzameld', qty: regel.items[0].qty };
+    state.varianten[k].totaal_verkocht += item.qty;
+    state.varianten[k].totaal_omzet += regel.totaal;
+    state.verkoop.push({ type: 'normaal', items: [item], totaal: regel.totaal, datum: regel.datum, betaal: 'cash' });
+  });
+
+  saveState(); render();
+  document.getElementById('import-status').innerHTML = `<span style="color:var(--accent)">✓ ${HISTORISCHE_VERKOOP.length} dagen geïmporteerd!</span>`;
+  document.getElementById('import-historisch-btn').disabled = true;
+  document.getElementById('import-historisch-btn').textContent = '✓ Geïmporteerd';
+}
+
+// --- RENDER ---
+function fmt(n) { return '€\u202f' + n.toFixed(2); }
+function pct(n) { return n.toFixed(1) + '%'; }
+
+
+function getPeriodBounds(period) {
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  if (period === 'vandaag') {
+    const start = new Date(now); 
+    const end = new Date(now); end.setDate(end.getDate()+1);
+    return { start, end };
+  }
+  if (period === 'week') {
+    const day = now.getDay() || 7;
+    const start = new Date(now); start.setDate(now.getDate() - day + 1);
+    const end = new Date(start); end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+  if (period === 'maand') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth()+1, 1);
+    return { start, end };
+  }
+  return null;
+}
+
+function getPrevPeriodBounds(period) {
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  if (period === 'vandaag') {
+    const start = new Date(now); start.setDate(now.getDate()-1);
+    const end = new Date(now);
+    return { start, end, label: 'gisteren' };
+  }
+  if (period === 'week') {
+    // Vergelijk: zelfde aantal dagen (vanaf maandag tm vandaag) vorige week
+    const day = now.getDay() || 7;
+    const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - day + 1);
+    const start = new Date(thisMonday); start.setDate(thisMonday.getDate()-7);
+    const end = new Date(start); end.setDate(start.getDate() + day); // tot en met zelfde weekdag
+    return { start, end, label: `vorige week (tm zelfde dag)` };
+  }
+  if (period === 'maand') {
+    // Vergelijk: zelfde aantal dagen (1 tm vandaag) vorige maand
+    const vandaagDag = now.getDate();
+    const start = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth()-1, vandaagDag + 1);
+    return { start, end, label: `vorige maand (tm dag ${vandaagDag})` };
+  }
+  return null;
+}
+
+function getMaandProjectie(hOmzet, hWinst) {
+  const now = new Date();
+  const vandaagDag = now.getDate();
+  const dagenInMaand = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  if (vandaagDag === 0) return null;
+  const factor = dagenInMaand / vandaagDag;
+  return {
+    omzet: hOmzet * factor,
+    winst: hWinst * factor,
+    dagenInMaand,
+    vandaagDag
+  };
+}
+
+function parseDatum(datum) {
+  const parts = datum.split('-');
+  if (parts.length !== 3) return null;
+  return new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
+}
+
+function berekenPeriodStats(bounds) {
+  let omzet = 0, winst = 0, stuks = 0;
+  state.verkoop.forEach(sale => {
+    const d = parseDatum(sale.datum);
+    if (!d || d < bounds.start || d >= bounds.end) return;
+    omzet += sale.totaal;
+    stuks += sale.items.reduce((a,it) => a+it.qty, 0);
+    sale.items.forEach(item => {
+      const k = key(item.merk, item.smaak);
+      const ink = state.varianten[k] ? state.varianten[k].inkoop_prijs : 0;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      winst += aandeel - item.qty * ink;
+    });
+  });
+  return { omzet, winst, stuks };
+}
+
+function diffHtml(huidig, vorig) {
+  const diff = huidig - vorig;
+  const pct = vorig !== 0 ? (diff / Math.abs(vorig) * 100) : (huidig > 0 ? 100 : 0);
+  const cls = diff > 0 ? 'diff-up' : diff < 0 ? 'diff-down' : 'diff-neutral';
+  const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '—';
+  const pctStr = isFinite(pct) ? ` (${Math.abs(pct).toFixed(1)}%)` : '';
+  return `<span class="${cls}">${arrow} ${Math.abs(diff).toFixed(2)}${pctStr}</span>`;
+}
+
+function diffHtmlInt(huidig, vorig) {
+  const diff = huidig - vorig;
+  const pct = vorig !== 0 ? (diff / Math.abs(vorig) * 100) : (huidig > 0 ? 100 : 0);
+  const cls = diff > 0 ? 'diff-up' : diff < 0 ? 'diff-down' : 'diff-neutral';
+  const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '—';
+  const pctStr = isFinite(pct) ? ` (${Math.abs(pct).toFixed(1)}%)` : '';
+  return `<span class="${cls}">${arrow} ${Math.abs(diff)}${pctStr}</span>`;
+}
+
+function renderVergelijking(hOmzet, hWinst, hStuks) {
+  const sectie = document.getElementById('vergelijk-sectie');
+  if (ovPeriod === 'alles') { sectie.style.display = 'none'; return; }
+
+  const prevBounds = getPrevPeriodBounds(ovPeriod);
+  if (!prevBounds) { sectie.style.display = 'none'; return; }
+
+  const prev = berekenPeriodStats(prevBounds);
+  sectie.style.display = 'block';
+
+  const labels = { vandaag: 'Vs. gisteren', week: 'Vs. vorige week', maand: 'Vs. vorige maand' };
+  document.getElementById('vergelijk-titel').textContent = labels[ovPeriod];
+
+  // Projectie alleen bij maand
+  let projectieHtml = '';
+  if (ovPeriod === 'maand') {
+    const proj = getMaandProjectie(hOmzet, hWinst);
+    if (proj && proj.vandaagDag < proj.dagenInMaand) {
+      projectieHtml = `
+        <div class="metric">
+          <div class="metric-label">Projectie deze maand</div>
+          <div class="metric-value" style="font-size:18px">${fmt(proj.omzet)}</div>
+          <div class="metric-sub">${fmt(proj.winst)} winst (op huidig tempo)</div>
+          <div class="metric-diff"><span class="diff-neutral">dag ${proj.vandaagDag} / ${proj.dagenInMaand}</span></div>
+        </div>`;
+    }
+  }
+
+  document.getElementById('vergelijk-metrics').innerHTML = `
+    <div class="metric">
+      <div class="metric-label">Omzet</div>
+      <div class="metric-value" style="font-size:18px">${fmt(hOmzet)}</div>
+      <div class="metric-sub">${fmt(prev.omzet)} ${prevBounds.label}</div>
+      <div class="metric-diff">${diffHtml(hOmzet, prev.omzet)}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Winst</div>
+      <div class="metric-value ${hWinst>=0?'green':'red'}" style="font-size:18px">${fmt(hWinst)}</div>
+      <div class="metric-sub">${fmt(prev.winst)} ${prevBounds.label}</div>
+      <div class="metric-diff">${diffHtml(hWinst, prev.winst)}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Bakjes verkocht</div>
+      <div class="metric-value" style="font-size:18px">${hStuks}</div>
+      <div class="metric-sub">${prev.stuks} ${prevBounds.label}</div>
+      <div class="metric-diff">${diffHtmlInt(hStuks, prev.stuks)}</div>
+    </div>
+    ${projectieHtml}
+  `;
+}
+
+
+// --- TOP / FLOP ---
+function getWeekKey(datum) {
+  const d = parseDatum(datum);
+  if (!d) return null;
+  const day = d.getDay() || 7;
+  const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+  return mon.toLocaleDateString('nl-NL', { day:'numeric', month:'short', year:'numeric' });
+}
+
+function getMaandKey(datum) {
+  const d = parseDatum(datum);
+  if (!d) return null;
+  return d.toLocaleString('nl-NL', { month: 'long', year: 'numeric' });
+}
+
+function groepeerVerkopen(filterFn) {
+  const dagen = {}, weken = {}, maanden = {};
+  state.verkoop.forEach(sale => {
+    if (filterFn && !filterFn(sale)) return;
+    const d = parseDatum(sale.datum);
+    if (!d) return;
+    const omzet = sale.totaal;
+    const stuks = sale.items.reduce((a, it) => a + it.qty, 0);
+    let winst = 0;
+    sale.items.forEach(item => {
+      const k = key(item.merk, item.smaak);
+      const ink = state.varianten[k] ? state.varianten[k].inkoop_prijs : 0;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      winst += aandeel - item.qty * ink;
+    });
+
+    // Dag
+    if (!dagen[sale.datum]) dagen[sale.datum] = { omzet:0, winst:0, stuks:0 };
+    dagen[sale.datum].omzet += omzet;
+    dagen[sale.datum].winst += winst;
+    dagen[sale.datum].stuks += stuks;
+
+    // Week
+    const wk = getWeekKey(sale.datum);
+    if (wk) {
+      if (!weken[wk]) weken[wk] = { omzet:0, winst:0, stuks:0 };
+      weken[wk].omzet += omzet;
+      weken[wk].winst += winst;
+      weken[wk].stuks += stuks;
+    }
+
+    // Maand
+    const mk = getMaandKey(sale.datum);
+    if (mk) {
+      if (!maanden[mk]) maanden[mk] = { omzet:0, winst:0, stuks:0 };
+      maanden[mk].omzet += omzet;
+      maanden[mk].winst += winst;
+      maanden[mk].stuks += stuks;
+    }
+  });
+  return { dagen, weken, maanden };
+}
+
+function topFlopVan(groep) {
+  const entries = Object.entries(groep);
+  if (entries.length === 0) return null;
+  const byOmzet = [...entries].sort((a,b) => b[1].omzet - a[1].omzet);
+  const byWinst = [...entries].sort((a,b) => b[1].winst - a[1].winst);
+  const byStuks = [...entries].sort((a,b) => b[1].stuks - a[1].stuks);
+  return {
+    best: { omzet: byOmzet[0], winst: byWinst[0], stuks: byStuks[0] },
+    worst: { omzet: byOmzet[byOmzet.length-1], winst: byWinst[byWinst.length-1], stuks: byStuks[byStuks.length-1] }
+  };
+}
+
+function topFlopKaart(titel, tf, cls) {
+  if (!tf) return '';
+  const { best, worst } = tf;
+  const isBest = cls === 'topflop-best';
+  const data = isBest ? best : worst;
+  const emoji = isBest ? '🏆' : '📉';
+  return `<div class="topflop-card ${cls}">
+    <h4>${emoji} ${titel}</h4>
+    <div class="topflop-row">
+      <div><div class="topflop-label">Omzet</div><div class="topflop-date">${data.omzet[0]}</div></div>
+      <div class="topflop-val">${fmt(data.omzet[1].omzet)}</div>
+    </div>
+    <div class="topflop-row">
+      <div><div class="topflop-label">Winst</div><div class="topflop-date">${data.winst[0]}</div></div>
+      <div class="topflop-val">${fmt(data.winst[1].winst)}</div>
+    </div>
+    <div class="topflop-row">
+      <div><div class="topflop-label">Stuks verkocht</div><div class="topflop-date">${data.stuks[0]}</div></div>
+      <div class="topflop-val">${data.stuks[1].stuks}</div>
+    </div>
+  </div>`;
+}
+
+function renderTopFlop() {
+  const el = document.getElementById('topflop-sectie');
+  if (!el || state.verkoop.length === 0) { if(el) el.innerHTML=''; return; }
+
+  let html = '';
+
+  if (ovPeriod === 'vandaag') {
+    // Beste/slechtste dag all time als context
+    const { dagen } = groepeerVerkopen(null);
+    const tf = topFlopVan(dagen);
+    if (tf && Object.keys(dagen).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE DAG ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste dag', tf, 'topflop-best')}${topFlopKaart('Slechtste dag', tf, 'topflop-worst')}</div>`;
+    }
+  }
+
+  if (ovPeriod === 'week') {
+    // Beste/slechtste dag van deze week
+    const weekBounds = getPeriodBounds('week');
+    const { dagen: dagenWeek } = groepeerVerkopen(s => {
+      const d = parseDatum(s.datum);
+      return d && d >= weekBounds.start && d < weekBounds.end;
+    });
+    const tfDag = topFlopVan(dagenWeek);
+    if (tfDag && Object.keys(dagenWeek).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE DAG DEZE WEEK</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste dag', tfDag, 'topflop-best')}${topFlopKaart('Slechtste dag', tfDag, 'topflop-worst')}</div>`;
+    }
+    // Beste/slechtste week all time
+    const { weken } = groepeerVerkopen(null);
+    const tfWeek = topFlopVan(weken);
+    if (tfWeek && Object.keys(weken).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE WEEK ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste week', tfWeek, 'topflop-best')}${topFlopKaart('Slechtste week', tfWeek, 'topflop-worst')}</div>`;
+    }
+  }
+
+  if (ovPeriod === 'maand') {
+    // Beste/slechtste dag van deze maand
+    const maandBounds = getPeriodBounds('maand');
+    const { dagen: dagenMaand } = groepeerVerkopen(s => {
+      const d = parseDatum(s.datum);
+      return d && d >= maandBounds.start && d < maandBounds.end;
+    });
+    const tfDag = topFlopVan(dagenMaand);
+    if (tfDag && Object.keys(dagenMaand).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE DAG DEZE MAAND</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste dag', tfDag, 'topflop-best')}${topFlopKaart('Slechtste dag', tfDag, 'topflop-worst')}</div>`;
+    }
+    // Beste/slechtste maand all time
+    const { maanden } = groepeerVerkopen(null);
+    const tfMaand = topFlopVan(maanden);
+    if (tfMaand && Object.keys(maanden).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE MAAND ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste maand', tfMaand, 'topflop-best')}${topFlopKaart('Slechtste maand', tfMaand, 'topflop-worst')}</div>`;
+    }
+  }
+
+  if (ovPeriod === 'alles') {
+    const { dagen, weken, maanden } = groepeerVerkopen(null);
+    const tfDag = topFlopVan(dagen);
+    const tfWeek = topFlopVan(weken);
+    const tfMaand = topFlopVan(maanden);
+    if (tfDag && Object.keys(dagen).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE DAG ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste dag', tfDag, 'topflop-best')}${topFlopKaart('Slechtste dag', tfDag, 'topflop-worst')}</div>`;
+    }
+    if (tfWeek && Object.keys(weken).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE WEEK ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste week', tfWeek, 'topflop-best')}${topFlopKaart('Slechtste week', tfWeek, 'topflop-worst')}</div>`;
+    }
+    if (tfMaand && Object.keys(maanden).length > 1) {
+      html += '<p style="font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:500">BESTE &amp; SLECHTSTE MAAND ALL TIME</p>';
+      html += `<div class="topflop-grid">${topFlopKaart('Beste maand', tfMaand, 'topflop-best')}${topFlopKaart('Slechtste maand', tfMaand, 'topflop-worst')}</div>`;
+    }
+  }
+
+  el.innerHTML = html || '';
+}
+
+
+// --- TREND GRAFIEK ---
+function renderTrendChart() {
+  const el = document.getElementById('trend-chart');
+  if (!el) return;
+
+  if (state.verkoop.length === 0) {
+    el.innerHTML = '<p class="empty">Nog geen verkopen om te tonen.</p>';
+    return;
+  }
+
+  // Bouw laatste 30 dagen (inclusief vandaag)
+  const dagen = [];
+  const vandaag = new Date(); vandaag.setHours(0,0,0,0);
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(vandaag); d.setDate(vandaag.getDate() - i);
+    dagen.push(d);
+  }
+
+  // Map: datumstring (dd-mm-yyyy) -> { omzet, winst }
+  const perDag = {};
+  state.verkoop.forEach(sale => {
+    const d = parseDatum(sale.datum);
+    if (!d) return;
+    const key = sale.datum;
+    if (!perDag[key]) perDag[key] = { omzet: 0, winst: 0 };
+    perDag[key].omzet += sale.totaal;
+    sale.items.forEach(item => {
+      const k = key2(item.merk, item.smaak);
+      const ink = state.varianten[k] ? state.varianten[k].inkoop_prijs : 0;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      perDag[key].winst += aandeel - item.qty * ink;
+    });
+  });
+
+  function key2(merk, smaak) { return merk + '||' + smaak; }
+
+  const data = dagen.map(d => {
+    const dStr = d.toLocaleDateString('nl-NL', { day:'2-digit', month:'2-digit', year:'numeric' });
+    const found = perDag[dStr] || { omzet: 0, winst: 0 };
+    return { datum: d, datumStr: dStr, omzet: found.omzet, winst: found.winst };
+  });
+
+  const maxVal = Math.max(...data.map(d => Math.max(d.omzet, d.winst)), 1);
+  const W = Math.max(600, data.length * 22);
+  const H = 180;
+  const padBottom = 28;
+  const padTop = 10;
+  const chartH = H - padBottom - padTop;
+  const barGroupW = W / data.length;
+  const barW = Math.min(8, barGroupW / 2.5);
+
+  let bars = '';
+  data.forEach((d, i) => {
+    const x = i * barGroupW + barGroupW/2;
+    const omzetH = (d.omzet / maxVal) * chartH;
+    const winstH = (d.winst / maxVal) * chartH;
+    const omzetY = padTop + (chartH - omzetH);
+    const winstY = padTop + (chartH - winstH);
+    const labelDag = d.datum.getDate();
+    const toonLabel = data.length <= 30 ? (i % (data.length > 20 ? 3 : 1) === 0) : false;
+
+    bars += `<rect class="trend-bar-omzet" x="${x - barW - 1}" y="${omzetY}" width="${barW}" height="${Math.max(omzetH,0.5)}" rx="2">
+      <title>${d.datumStr}\nOmzet: €${d.omzet.toFixed(2)}</title>
+    </rect>`;
+    bars += `<rect class="trend-bar-winst" x="${x + 1}" y="${winstY}" width="${barW}" height="${Math.max(winstH,0.5)}" rx="2">
+      <title>${d.datumStr}\nWinst: €${d.winst.toFixed(2)}</title>
+    </rect>`;
+
+    if (toonLabel) {
+      bars += `<text x="${x}" y="${H - 8}" text-anchor="middle" font-size="9" fill="var(--text3)" font-family="DM Mono, monospace">${labelDag}</text>`;
+    }
+  });
+
+  // Y-as gridlines (0, 50%, 100%)
+  let grid = '';
+  [0, 0.5, 1].forEach(f => {
+    const y = padTop + chartH * (1 - f);
+    const val = maxVal * f;
+    grid += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>`;
+    grid += `<text x="2" y="${y - 3}" font-size="9" fill="var(--text3)" font-family="DM Mono, monospace">€${val.toFixed(0)}</text>`;
+  });
+
+  el.innerHTML = `
+    <div class="trend-legend">
+      <div class="trend-legend-item"><span class="trend-legend-dot" style="background:var(--accent-light);border:1px solid var(--accent)"></span>Omzet</div>
+      <div class="trend-legend-item"><span class="trend-legend-dot" style="background:var(--accent)"></span>Winst</div>
+    </div>
+    <div class="trend-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+        ${grid}
+        ${bars}
+      </svg>
+    </div>
+  `;
+}
+
+let ovPeriod = 'alles';
+
+function setOvPeriod(p) {
+  ovPeriod = p;
+  ['vandaag','week','maand','alles'].forEach(n => {
+    const btn = document.getElementById('ov-'+n);
+    if (!btn) return;
+    btn.style.background = n === p ? 'var(--accent)' : '';
+    btn.style.color = n === p ? '#fff' : '';
+    btn.style.borderColor = n === p ? 'transparent' : '';
+  });
+  render();
+  updatePofBadge();
+}
+
+function saleInPeriod(sale, period) {
+  if (period === 'alles') return true;
+  const parts = sale.datum.split('-');
+  if (parts.length !== 3) return false;
+  const d = new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
+  const now = new Date();
+  if (period === 'vandaag') {
+    return d.toDateString() === now.toDateString();
+  }
+  if (period === 'week') {
+    const day = now.getDay() || 7;
+    const mon = new Date(now); mon.setDate(now.getDate() - day + 1); mon.setHours(0,0,0,0);
+    return d >= mon;
+  }
+  if (period === 'maand') {
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }
+  return true;
+}
+
+function render() {
+  const vars = Object.entries(state.varianten);
+  const totVoorraad = vars.reduce((a,[,v]) => a + v.voorraad, 0);
+  const totVoorraadWaarde = vars.reduce((a,[,v]) => a + v.voorraad * v.inkoop_prijs, 0);
+
+  // Filter verkopen op periode
+  const gefilterd = state.verkoop.filter(s => saleInPeriod(s, ovPeriod));
+
+  // Bereken omzet/winst/stuks uit gefilterde verkopen
+  let totOmzet = 0, totVerkocht = 0, totWinst = 0;
+  gefilterd.forEach(sale => {
+    totOmzet += sale.totaal;
+    sale.items.forEach(item => {
+      const k = key(item.merk, item.smaak);
+      const ink = state.varianten[k] ? state.varianten[k].inkoop_prijs : 0;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      totWinst += aandeel - item.qty * ink;
+      totVerkocht += item.qty;
+    });
+  });
+  const marge = totOmzet > 0 ? totWinst / totOmzet * 100 : 0;
+
+  const periodLabel = { vandaag:'vandaag', week:'deze week', maand:'deze maand', alles:'alle tijd' }[ovPeriod];
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="metric-label">Omzet (${periodLabel})</div><div class="metric-value">${fmt(totOmzet)}</div></div>
+    <div class="metric"><div class="metric-label">Winst (${periodLabel})</div><div class="metric-value ${totWinst>=0?'green':'red'}">${fmt(totWinst)}</div></div>
+    <div class="metric"><div class="metric-label">Winstmarge</div><div class="metric-value ${marge>=0?'green':'red'}">${pct(marge)}</div></div>
+    <div class="metric"><div class="metric-label">Bakjes verkocht</div><div class="metric-value">${totVerkocht}</div></div>
+    <div class="metric"><div class="metric-label">Voorraad (stuks)</div><div class="metric-value">${totVoorraad}</div><div class="metric-sub">${fmt(totVoorraadWaarde)} inkoop</div></div>
+  `;
+
+  // Vergelijking met vorige periode
+  renderVergelijking(totOmzet, totWinst, totVerkocht);
+  renderTopFlop();
+  renderTrendChart();
+
+  // Brand table — altijd op basis van alle tijd (voorraad/totalen staan in varianten)
+  if (vars.length === 0) {
+    document.getElementById('brand-table-wrap').innerHTML = '<p class="empty">Nog geen varianten. Ga naar Inkoop.</p>';
+  } else {
+    const byMerk = {};
+    vars.forEach(([k,v]) => { if (!byMerk[v.merk]) byMerk[v.merk] = []; byMerk[v.merk].push(v); });
+    let rows = '';
+    Object.entries(byMerk).forEach(([merk, smaken]) => {
+      const merkOmzet = smaken.reduce((a,v) => a+v.totaal_omzet, 0);
+      const merkWinst = smaken.reduce((a,v) => a+v.totaal_omzet-v.totaal_verkocht*v.inkoop_prijs, 0);
+      const merkVerkocht = smaken.reduce((a,v) => a+v.totaal_verkocht, 0);
+      const merkMarge = merkOmzet > 0 ? merkWinst/merkOmzet*100 : 0;
+      const merkVoorraad = smaken.reduce((a,v) => a+v.voorraad, 0);
+      rows += `<tr style="background:var(--surface2)">
+        <td style="font-weight:600">${merk}</td>
+        <td class="muted" style="font-size:12px">${smaken.length} smaken</td>
+        <td>${merkVerkocht}</td>
+        <td>${fmt(merkOmzet)}</td>
+        <td class="${merkWinst>=0?'green':'red'}">${fmt(merkWinst)}</td>
+        <td class="${merkMarge>=0?'green':'red'}">${pct(merkMarge)}</td>
+        <td>${merkVoorraad}</td>
+      </tr>`;
+      smaken.forEach(v => {
+        const w = v.totaal_omzet - v.totaal_verkocht * v.inkoop_prijs;
+        const m = v.totaal_omzet > 0 ? w/v.totaal_omzet*100 : 0;
+        const badge = v.voorraad === 0 ? 'badge-empty' : v.voorraad < 5 ? 'badge-low' : 'badge-ok';
+        const bl = v.voorraad === 0 ? 'leeg' : v.voorraad < 5 ? 'laag' : 'ok';
+        rows += `<tr>
+          <td style="padding-left:1.5rem;color:var(--text2)">${v.smaak}</td>
+          <td style="font-size:12px;color:var(--text3)">${fmt(v.inkoop_prijs)}/st</td>
+          <td>${v.totaal_verkocht}</td>
+          <td>${fmt(v.totaal_omzet)}</td>
+          <td class="${w>=0?'green':'red'}">${fmt(w)}</td>
+          <td class="${m>=0?'green':'red'}">${pct(m)}</td>
+          <td><span class="badge ${badge}">${v.voorraad} — ${bl}</span></td>
+        </tr>`;
+      });
+    });
+    document.getElementById('brand-table-wrap').innerHTML = `<table><thead><tr><th>Merk / smaak</th><th>Inkoop</th><th>Verkocht</th><th>Omzet</th><th>Winst</th><th>Marge</th><th>Voorraad</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  renderInkoop(); renderVerkoop(); renderVoorraad(); renderConcepten();
+}
+
+function bevestigConcept(i) {
+  const sale = state.concepten[i];
+  // check voorraad
+  for (const item of sale.items) {
+    const k = key(item.merk, item.smaak);
+    if (!state.varianten[k] || state.varianten[k].voorraad < item.qty) {
+      alert('Niet genoeg voorraad voor ' + item.merk + ' ' + item.smaak + '!'); return;
+    }
+  }
+  // verwerk
+  sale.items.forEach(item => {
+    const k = key(item.merk, item.smaak);
+    state.varianten[k].voorraad -= item.qty;
+    state.varianten[k].totaal_verkocht += item.qty;
+    const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+    state.varianten[k].totaal_omzet += aandeel;
+  });
+  state.verkoop.push({ ...sale });
+  state.concepten.splice(i, 1);
+  saveState(); render();
+}
+
+function annuleerConcept(i) {
+  if (!confirm('Bestelling annuleren?')) return;
+  state.concepten.splice(i, 1);
+  saveState(); render();
+}
+
+function renderConcepten() {
+  if (!state.concepten) state.concepten = [];
+  verwijderVervallenConcepten();
+  const card = document.getElementById('concept-card');
+  const list = document.getElementById('concept-list');
+  if (state.concepten.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const betaalLabels = { cash: '💵 Cash', tikkie: '📲 Tikkie', pof: '📋 Pof' };
+  const nu = Date.now();
+  let rows = state.concepten.map((sale, i) => {
+    const omschrijving = sale.type === 'mix'
+      ? 'Mix rol: ' + sale.items.map(it => it.merk + ' ' + it.smaak + ' (' + it.qty + 'x)').join(', ')
+      : sale.items[0].merk + ' — ' + sale.items[0].smaak + ' × ' + sale.items[0].qty;
+    const restMs = sale.timestamp ? Math.max(0, VERVAL_MS - (nu - sale.timestamp)) : VERVAL_MS;
+    const restMin = Math.floor(restMs / 60000);
+    const restSec = Math.floor((restMs % 60000) / 1000);
+    const countdown = restMin > 0 ? `${restMin}m ${restSec}s` : `${restSec}s`;
+    const countColor = restMin < 10 ? 'var(--danger)' : 'var(--warn)';
+    const naam = sale.naam ? `<strong>${sale.naam}</strong><br>` : '';
+    const komst = sale.komst ? `🕐 ${sale.komst}<br>` : '';
+    return `<tr>
+      <td>${naam}${komst}<span style="font-size:12px;color:var(--text3)">${sale.datum}</span></td>
+      <td>${omschrijving}</td>
+      <td>${betaalLabels[sale.betaal || 'cash']}</td>
+      <td style="font-weight:600">${fmt(sale.totaal)}</td>
+      <td style="font-size:12px;color:${countColor};font-family:'DM Mono',monospace">⏱ ${countdown}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-primary" onclick="bevestigConcept(${i})">✓ Bevestig</button>
+        <button class="btn btn-sm btn-danger" onclick="annuleerConcept(${i})">✕ Annuleer</button>
+      </td>
+    </tr>`;
+  }).join('');
+  list.innerHTML = `<table><thead><tr><th>Klant</th><th>Bestelling</th><th>Betaling</th><th>Bedrag</th><th>Vervalt</th><th>Actie</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function getMerkKlasse(merk) {
+  const m = (merk || '').toLowerCase();
+  if (m.includes('pablo')) return 'pablo';
+  if (m.includes('killa')) return 'killa';
+  if (m.includes('cuba')) return 'cuba';
+  if (m.includes('fox')) return 'fox';
+  if (m.includes('iceberg')) return 'iceberg';
+  if (m.includes('velo')) return 'velo';
+  return 'default';
+}
+
+function renderInkoop() {
+  if (state.inkoop.length === 0) { document.getElementById('inkoop-list').innerHTML = '<p class="empty">Nog geen inkoop.</p>'; return; }
+  let rows = [...state.inkoop].reverse().map((item, ri) => {
+    const i = state.inkoop.length - 1 - ri;
+    const k = key(item.merk, item.smaak);
+    const gem = state.varianten[k] ? state.varianten[k].inkoop_prijs : item.prijs;
+    const mk = getMerkKlasse(item.merk);
+    const rollen = item.rollen ? item.rollen : Math.round(item.aantal / 10);
+    const totaal = item.aantal * item.prijs;
+    const pprolStr = item.prijsPerRol
+      ? `<span style="font-size:11px;color:var(--text3)">€${parseFloat(item.prijsPerRol).toFixed(2)}/rol</span>`
+      : '';
+    return `<tr class="ink-groep-${mk}">
+      <td style="color:var(--text3);font-size:13px">${item.datum}</td>
+      <td><span class="merk-badge merk-${mk}">${item.merk}</span></td>
+      <td style="font-weight:600;font-size:14px">${item.smaak}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:13px">${rollen} rol${rollen !== 1 ? 'len' : ''}<br>${pprolStr}</td>
+      <td style="color:var(--accent);font-weight:700;font-size:14px;font-family:'DM Mono',monospace">${fmt(item.prijs)}<span style="font-size:11px;font-weight:400;color:var(--text3)">/st</span></td>
+      <td style="font-weight:700;font-size:15px;font-family:'DM Mono',monospace">${fmt(totaal)}</td>
+      <td style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace">&#8960; ${fmt(gem)}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteInkoop(${i})">&#x2715;</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('inkoop-list').innerHTML = `<table><thead><tr>
+    <th>Datum</th><th>Merk</th><th>Smaak</th><th>Rollen</th><th>Prijs/bakje</th><th>Totaal</th><th>Gem. inkoop</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderVerkoop() {
+  if (state.verkoop.length === 0) { document.getElementById('verkoop-list').innerHTML = '<p class="empty">Nog geen verkopen.</p>'; return; }
+  let rows = [...state.verkoop].reverse().map((sale, ri) => {
+    const i = state.verkoop.length - 1 - ri;
+    const omschrijving = sale.type === 'mix'
+      ? '<span class="badge badge-mix">Mix rol</span> ' + sale.items.map(it => it.merk+' '+it.smaak+' ('+it.qty+'x)').join(', ')
+      : sale.type === 'multi'
+      ? '<span class="badge badge-mix" style="background:#e8f0ff;color:#2241d0">Mix</span> ' + sale.items.map(it => it.merk+' '+it.smaak+' ('+it.qty+'x)').join(', ')
+      : sale.items[0].merk + ' — ' + sale.items[0].smaak + ' × ' + sale.items[0].qty;
+    const betaalLabels = { cash: '💵 Cash', tikkie: '📲 Tikkie', pof: '📋 Pof' };
+    const betaalClass = { cash: 'badge-cash', tikkie: 'badge-tikkie', pof: 'badge-pof' };
+    const bm = sale.betaal || 'cash';
+    const pofTag = sale.pofNaam ? `<span style="font-size:11px;color:#7a3d00;margin-left:4px">${sale.pofNaam}${sale.pofBetaald ? ' ✓' : ''}</span>` : '';
+    const pofStijl = bm === 'pof' && !sale.pofBetaald ? 'background:#fff8e8' : '';
+    return `<tr style="${pofStijl}"><td>${sale.datum}</td><td>${omschrijving}</td><td><span class="badge ${betaalClass[bm]}">${betaalLabels[bm]}</span>${pofTag}</td><td>${fmt(sale.totaal)}</td><td style="display:flex;gap:4px"><button class="btn btn-sm" onclick="bewerkVerkoop(${i})" title="Bewerken">✏️</button><button class="btn btn-sm btn-danger" onclick="deleteVerkoop(${i})">✕</button></td></tr>`;
+  }).join('');
+  document.getElementById('verkoop-list').innerHTML = `<table><thead><tr><th>Datum</th><th>Omschrijving</th><th>Betaald via</th><th>Bedrag</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderVoorraad() {
+  const vars = Object.entries(state.varianten);
+  if (vars.length === 0) { document.getElementById('voorraad-table').innerHTML = '<p class="empty">Nog geen varianten.</p>'; return; }
+  const byMerk = {};
+  vars.forEach(([k,v]) => { if (!byMerk[v.merk]) byMerk[v.merk] = []; byMerk[v.merk].push(v); });
+  let rows = '';
+  Object.entries(byMerk).forEach(([merk, smaken]) => {
+    const totaal = smaken.reduce((a,v) => a+v.voorraad, 0);
+    rows += `<tr style="background:var(--surface2)"><td style="font-weight:600">${merk}</td><td colspan="4" class="muted" style="font-size:13px">Totaal: ${totaal} stuks</td></tr>`;
+    smaken.forEach(v => {
+      const rollen = Math.floor(v.voorraad/10);
+      const los = v.voorraad%10;
+      const rolStr = rollen > 0 ? rollen+'×rol'+(los>0?' + '+los+' los':'') : los+' los';
+      const badge = v.voorraad===0?'badge-empty':v.voorraad<5?'badge-low':'badge-ok';
+      const bl = v.voorraad===0?'leeg':v.voorraad<5?'laag':'ok';
+      rows += `<tr><td style="padding-left:1.5rem;color:var(--text2)">${v.smaak}</td><td>${v.voorraad} stuks</td><td>${rolStr}</td><td><span class="badge ${badge}">${bl}</span></td><td>${fmt(v.voorraad*v.inkoop_prijs)}</td></tr>`;
+    });
+  });
+  document.getElementById('voorraad-table').innerHTML = `<table><thead><tr><th>Merk / smaak</th><th>Stuks</th><th>In rollen</th><th>Status</th><th>Voorraadwaarde</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// --- STATISTIEKEN ---
+let activePeriod = 'week';
+let geselecteerdePeriode = null; // null = automatisch (huidige periode bovenaan)
+
+function setPeriod(p) {
+  activePeriod = p;
+  geselecteerdePeriode = null;
+  ['dag','week','maand','4weken'].forEach(n => {
+    const btn = document.getElementById('period-'+n);
+    btn.style.background = n === p ? 'var(--accent)' : '';
+    btn.style.color = n === p ? '#fff' : '';
+    btn.style.borderColor = n === p ? 'transparent' : '';
+  });
+  renderStatistieken();
+}
+
+function selectSpecifiekePeriode(val) {
+  geselecteerdePeriode = val || null;
+  renderStatistieken();
+}
+
+function getEersteVerkoopDatum() {
+  let vroegste = null;
+  state.verkoop.forEach(sale => {
+    const d = parseDatum(sale.datum);
+    if (!d) return;
+    if (!vroegste || d < vroegste) vroegste = d;
+  });
+  return vroegste;
+}
+
+function get4WekenIndex(d) {
+  const start = getEersteVerkoopDatum();
+  if (!start) return 0;
+  const dagenSindsStart = Math.floor((d - start) / (1000*60*60*24));
+  return Math.floor(dagenSindsStart / 28);
+}
+
+function getPeriodKey(datum, period) {
+  // datum is nl format dd-mm-yyyy
+  const parts = datum.split('-');
+  if (parts.length !== 3) return datum;
+  const d = new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
+  if (isNaN(d)) return datum;
+  if (period === 'dag') return datum;
+  if (period === 'maand') {
+    return d.toLocaleString('nl-NL', { month: 'long', year: 'numeric' });
+  }
+  if (period === 'week') {
+    // get monday of that week
+    const day = d.getDay() || 7;
+    const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const fmt = dt => dt.toLocaleDateString('nl-NL', { day:'numeric', month:'short' });
+    return fmt(mon) + ' – ' + fmt(sun);
+  }
+  if (period === '4weken') {
+    const start = getEersteVerkoopDatum();
+    if (!start) return datum;
+    const idx = get4WekenIndex(d);
+    const periodStart = new Date(start); periodStart.setDate(start.getDate() + idx*28);
+    const periodEnd = new Date(periodStart); periodEnd.setDate(periodStart.getDate() + 27);
+    const fmt = dt => dt.toLocaleDateString('nl-NL', { day:'numeric', month:'short' });
+    return `Periode ${idx+1}: ${fmt(periodStart)} – ${fmt(periodEnd)}`;
+  }
+  return datum;
+}
+
+function getPeriodSort(datum, period) {
+  const parts = datum.split('-');
+  if (parts.length !== 3) return datum;
+  const d = new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
+  if (isNaN(d)) return datum;
+  if (period === 'dag') return d.getTime();
+  if (period === 'maand') return d.getFullYear() * 100 + d.getMonth();
+  if (period === 'week') { const day = d.getDay()||7; const mon = new Date(d); mon.setDate(d.getDate()-day+1); return mon.getTime(); }
+  if (period === '4weken') return get4WekenIndex(d);
+  return d.getTime();
+}
+
+function renderStatistieken() {
+  const labels = { dag: 'dag', week: 'week', maand: 'maand', '4weken': '4-weken periode' };
+  document.getElementById('stat-table-title').textContent = 'Overzicht per ' + labels[activePeriod];
+
+  if (state.verkoop.length === 0) {
+    document.getElementById('stat-metrics').innerHTML = '';
+    document.getElementById('stat-table').innerHTML = '<p class="empty">Nog geen verkopen om te analyseren.</p>';
+    document.getElementById('stat-best').innerHTML = '<p class="empty">Nog geen data.</p>';
+    return;
+  }
+
+  // Group by period
+  const groups = {};
+  state.verkoop.forEach(sale => {
+    const pk = getPeriodKey(sale.datum, activePeriod);
+    const ps = getPeriodSort(sale.datum, activePeriod);
+    if (!groups[pk]) groups[pk] = { label: pk, sort: ps, omzet: 0, winst: 0, transacties: 0, stuks: 0 };
+    groups[pk].omzet += sale.totaal;
+    groups[pk].transacties += 1;
+    groups[pk].stuks += sale.items.reduce((a,it) => a+it.qty, 0);
+    sale.items.forEach(item => {
+      const k = key(item.merk, item.smaak);
+      const ink = state.varianten[k] ? state.varianten[k].inkoop_prijs : 0;
+      const aandeel = sale.type === 'mix' ? sale.totaal * item.qty / 10 : sale.totaal;
+      groups[pk].winst += aandeel - item.qty * ink;
+    });
+  });
+
+  const sorted = Object.values(groups).sort((a,b) => b.sort - a.sort);
+
+  // Vul de periode-dropdown
+  const sel = document.getElementById('period-select');
+  const huidigeSelectie = geselecteerdePeriode;
+  sel.innerHTML = '<option value="">— alle periodes —</option>' +
+    sorted.map(g => `<option value="${g.label}"${g.label === huidigeSelectie ? ' selected' : ''}>${g.label}</option>`).join('');
+
+  // Bepaal welke groep getoond wordt als "huidig"
+  let huidig;
+  if (geselecteerdePeriode) {
+    huidig = sorted.find(g => g.label === geselecteerdePeriode) || sorted[0];
+  } else {
+    huidig = sorted[0];
+  }
+  const huidigIdx = sorted.indexOf(huidig);
+
+  // Summary metrics
+  const totOmzet = sorted.reduce((a,g) => a+g.omzet, 0);
+  const totWinst = sorted.reduce((a,g) => a+g.winst, 0);
+  const gemOmzet = sorted.length > 0 ? totOmzet / sorted.length : 0;
+  const gemWinst = sorted.length > 0 ? totWinst / sorted.length : 0;
+  const best = sorted.reduce((a,g) => g.omzet > a.omzet ? g : a, sorted[0]);
+
+  const huidigLabel = geselecteerdePeriode ? labels[activePeriod] : 'huidige ' + labels[activePeriod];
+
+  document.getElementById('stat-metrics').innerHTML = `
+    <div class="metric"><div class="metric-label">${geselecteerdePeriode ? 'Geselecteerde periode — omzet' : 'Huidige ' + labels[activePeriod] + ' — omzet'}</div><div class="metric-value green">${fmt(huidig ? huidig.omzet : 0)}</div></div>
+    <div class="metric"><div class="metric-label">${geselecteerdePeriode ? 'Geselecteerde periode — winst' : 'Huidige ' + labels[activePeriod] + ' — winst'}</div><div class="metric-value ${huidig && huidig.winst>=0?'green':'red'}">${fmt(huidig ? huidig.winst : 0)}</div></div>
+    <div class="metric"><div class="metric-label">Gemiddeld per ${labels[activePeriod]}</div><div class="metric-value">${fmt(gemOmzet)}</div><div class="metric-sub">${fmt(gemWinst)} winst</div></div>
+    <div class="metric"><div class="metric-label">Beste ${labels[activePeriod]}</div><div class="metric-value">${fmt(best ? best.omzet : 0)}</div></div>
+    <div class="metric"><div class="metric-label">Totaal periodes</div><div class="metric-value">${sorted.length}</div></div>
+  `;
+
+  // Period table
+  let rows = sorted.map((g, i) => {
+    const prev = sorted[i+1];
+    const diff = prev ? g.omzet - prev.omzet : null;
+    const diffHtml = diff !== null ? `<span style="font-size:12px;color:var(--${diff>=0?'accent':'danger'})">${diff>=0?'▲':'▼'} ${fmt(Math.abs(diff))}</span>` : '<span class="muted">—</span>';
+    const isGeselecteerd = i === huidigIdx;
+    return `<tr style="${isGeselecteerd ? 'background:var(--accent-light)' : ''}">
+      <td style="font-weight:${i===0?'600':'400'}">${g.label}${i===0 && !geselecteerdePeriode ?' <span style="font-size:11px;color:var(--accent);font-weight:400">(huidig)</span>':''}${isGeselecteerd && geselecteerdePeriode ? ' <span style="font-size:11px;color:var(--accent);font-weight:400">(geselecteerd)</span>' : ''}</td>
+      <td>${g.transacties}</td>
+      <td>${g.stuks}</td>
+      <td style="font-weight:500">${fmt(g.omzet)}</td>
+      <td class="${g.winst>=0?'green':'red'}">${fmt(g.winst)}</td>
+      <td>${diffHtml}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('stat-table').innerHTML = `<table><thead><tr><th>${labels[activePeriod].charAt(0).toUpperCase()+labels[activePeriod].slice(1)}</th><th>Transacties</th><th>Stuks</th><th>Omzet</th><th>Winst</th><th>vs vorige</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+
+  // Best days (always per dag)
+  const dagGroups = {};
+  state.verkoop.forEach(sale => {
+    if (!dagGroups[sale.datum]) dagGroups[sale.datum] = { omzet: 0, stuks: 0, transacties: 0 };
+    dagGroups[sale.datum].omzet += sale.totaal;
+    dagGroups[sale.datum].stuks += sale.items.reduce((a,it) => a+it.qty, 0);
+    dagGroups[sale.datum].transacties += 1;
+  });
+  const bestDagen = Object.entries(dagGroups).sort((a,b) => b[1].omzet - a[1].omzet).slice(0, 5);
+  if (bestDagen.length === 0) {
+    document.getElementById('stat-best').innerHTML = '<p class="empty">Nog geen data.</p>';
+  } else {
+    let drows = bestDagen.map(([datum, d], i) => `<tr>
+      <td style="color:var(--text3);font-size:13px">#${i+1}</td>
+      <td style="font-weight:500">${datum}</td>
+      <td>${d.transacties}</td>
+      <td>${d.stuks}</td>
+      <td style="font-weight:600;color:var(--accent)">${fmt(d.omzet)}</td>
+    </tr>`).join('');
+    document.getElementById('stat-best').innerHTML = `<table><thead><tr><th>#</th><th>Datum</th><th>Transacties</th><th>Stuks</th><th>Omzet</th></tr></thead><tbody>${drows}</tbody></table>`;
+  }
+  // Betaalmethodes
+  const betaalStats = { cash: { omzet: 0, count: 0 }, tikkie: { omzet: 0, count: 0 }, pof: { omzet: 0, count: 0 } };
+  state.verkoop.forEach(sale => {
+    const bm = sale.betaal || 'cash';
+    if (betaalStats[bm]) { betaalStats[bm].omzet += sale.totaal; betaalStats[bm].count += 1; }
+  });
+  const totBetaal = Object.values(betaalStats).reduce((a,b) => a + b.omzet, 0);
+  const betaalLabels = { cash: '💵 Cash', tikkie: '📲 Tikkie', pof: '📋 Pof' };
+  const betaalClass = { cash: 'badge-cash', tikkie: 'badge-tikkie', pof: 'badge-pof' };
+  const betaalRows = Object.entries(betaalStats).map(([bm, d]) => `<tr>
+    <td><span class="badge ${betaalClass[bm]}">${betaalLabels[bm]}</span></td>
+    <td>${d.count} transacties</td>
+    <td style="font-weight:600">${fmt(d.omzet)}</td>
+    <td style="color:var(--text3)">${totBetaal > 0 ? (d.omzet/totBetaal*100).toFixed(1) + '%' : '—'}</td>
+  </tr>`).join('');
+  document.getElementById('stat-betaal').innerHTML = `<table><thead><tr><th>Methode</th><th>Transacties</th><th>Omzet</th><th>Aandeel</th></tr></thead><tbody>${betaalRows}</tbody></table>`;
+}
+
+function renderPrijzenForm() {
+  const labels = { 1:'1 bakje', 2:'2 bakjes', 3:'3 bakjes', 4:'4 bakjes', 5:'5 bakjes', 10:'Rol (10 stuks)' };
+  document.getElementById('prijzen-form').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+      ${Object.entries(PRIJZEN).map(([qty, prijs]) => `
+        <div>
+          <label>${labels[qty]}</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--text2);font-size:14px">€</span>
+            <input type="number" step="0.01" min="0" id="prijs-${qty}" value="${prijs.toFixed(2)}" />
+          </div>
+        </div>
+      `).join('')}
+      <div>
+        <label>Mix rol (10 stuks)</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:var(--text2);font-size:14px">€</span>
+          <input type="number" step="0.01" min="0" id="prijs-mix" value="${MIX_PRIJS.toFixed(2)}" />
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function savePrijzen() {
+  const newPrijzen = {};
+  [1,2,3,4,5,10].forEach(q => {
+    const val = parseFloat(document.getElementById('prijs-'+q).value);
+    if (!isNaN(val) && val >= 0) newPrijzen[q] = val;
+  });
+  const mixVal = parseFloat(document.getElementById('prijs-mix').value);
+  PRIJZEN = newPrijzen;
+  if (!isNaN(mixVal) && mixVal >= 0) MIX_PRIJS = mixVal;
+  localStorage.setItem('snus_prijzen', JSON.stringify({ prijzen: PRIJZEN, mix: MIX_PRIJS }));
+  saveState(); // ook naar Google Sheets
+  const saved = document.getElementById('prijzen-saved');
+  saved.style.display = 'inline';
+  setTimeout(() => saved.style.display = 'none', 2000);
+}
+
+function berekenStandaardPrijs(qty) {
+  if (qty === 1) return 7.50;
+  if (qty === 2) return 15;
+  if (qty === 3) return 20;
+  if (qty === 4) return 25;
+  return 25 + (qty - 4) * 5;
+}
+
+function renderPrijsBtns() {
+  const container = document.getElementById('price-grid-btns');
+  if (!container) return;
+  let html = '';
+  for (let q = 1; q <= 9; q++) {
+    const p = berekenStandaardPrijs(q);
+    const sel = q === saleQty && !isMix ? ' selected' : '';
+    const pStr = p % 1 === 0 ? p + ',00' : p.toFixed(2).replace('.',',');
+    html += `<button class="price-btn${sel}" onclick="selectPriceBtn(this,${q},${p},false)"><span class="qty">${q}</span><span class="prijs">€${pStr}</span></button>`;
+  }
+  const rolP = PRIJZEN[10] || 45;
+  html += `<button class="price-btn${saleQty===10&&!isMix?' selected':''}" onclick="selectPriceBtn(this,10,${rolP},false)"><span class="qty">Rol</span><span class="prijs">€${rolP.toFixed(2)}</span></button>`;
+  html += `<button class="price-btn mix-btn${isMix?' selected':''}" onclick="selectPriceBtn(this,10,${MIX_PRIJS},true)"><span class="qty">Mix rol</span><span class="prijs">€${MIX_PRIJS.toFixed(2)}</span></button>`;
+  container.innerHTML = html;
+}
+
+function resetAlles() {
+  if (!confirm('Weet je zeker dat je ALLE data wilt verwijderen? Dit kan niet ongedaan worden gemaakt.')) return;
+  if (!confirm('Laatste waarschuwing — alles wordt gewist. Doorgaan?')) return;
+  localStorage.removeItem('snus_tracker_v2');
+  state = { varianten: {}, inkoop: [], verkoop: [] };
+  render();
+  showTab('overzicht');
+}
+
+initTheme();
+loadState();
+setInterval(() => { if (document.getElementById('sec-verkoop').classList.contains('active')) renderConcepten(); }, 1000);
+
+</script>
+</body>
+</html>
