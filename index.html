@@ -1289,6 +1289,32 @@ function changeRollen(i, d) {
   renderInkoopRijen();
 }
 
+function updateInkoopPrijs(i, value) {
+  inkoopRijen[i].prijsPerRol = value;
+  const pprol = parseBedrag(value);
+  const ppb = !isNaN(pprol) && pprol > 0 ? (pprol / BAKJES_PER_ROL) : null;
+  const chip = document.getElementById(`inkoop-ppb-${i}`);
+  if (chip) chip.innerHTML = ppb ? '€' + formatBedrag(ppb) : '<span style="color:var(--text3)">—</span>';
+  updateInkoopTotaalBar();
+}
+
+function updateInkoopTotaalBar() {
+  const totaalBar = document.getElementById('inkoop-totaal-bar');
+  const totaalTekst = document.getElementById('inkoop-totaal-tekst');
+  if (!totaalBar || !totaalTekst) return;
+
+  const geldige = inkoopRijen.filter(r => r.merk && r.smaak && parseBedrag(r.prijsPerRol) > 0);
+  if (geldige.length > 0) {
+    const totaalRollen = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1), 0);
+    const totaalBakjes = totaalRollen * BAKJES_PER_ROL;
+    const totaalWaarde = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1) * parseBedrag(r.prijsPerRol), 0);
+    totaalBar.style.display = 'block';
+    totaalTekst.innerHTML = `${geldige.length} smaak${geldige.length > 1 ? 'en' : ''} &nbsp;|&nbsp; <strong>${totaalRollen} rollen</strong> &nbsp;|&nbsp; <strong>${totaalBakjes} bakjes</strong> &nbsp;|&nbsp; Totaal: <strong>€${formatBedrag(totaalWaarde)}</strong>`;
+  } else {
+    totaalBar.style.display = 'none';
+  }
+}
+
 function renderInkoopRijen() {
   const container = document.getElementById('inkoop-rijen');
   if (!container) return;
@@ -1321,8 +1347,8 @@ function renderInkoopRijen() {
         <button onclick="changeRollen(${i},1)">+</button>
       </div>
       <input type="text" inputmode="decimal" placeholder="0,00" value="${rij.prijsPerRol}"
-        oninput="inkoopRijen[${i}].prijsPerRol=this.value;renderInkoopRijen()" style="margin-bottom:0" />
-      <div class="ppb-chip" style="font-size:15px">${ppb ? '€' + formatBedrag(ppb) : '<span style=\'color:var(--text3)\'>—</span>'}</div>
+        oninput="updateInkoopPrijs(${i}, this.value)" style="margin-bottom:0" />
+      <div id="inkoop-ppb-${i}" class="ppb-chip" style="font-size:15px">${ppb ? '€' + formatBedrag(ppb) : '<span style=\'color:var(--text3)\'>—</span>'}</div>
       ${inkoopRijen.length > 1
         ? `<button onclick="removeInkoopRij(${i})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:18px;line-height:1">✕</button>`
         : '<div></div>'}
@@ -1330,20 +1356,7 @@ function renderInkoopRijen() {
   });
 
   container.innerHTML = html;
-
-  // Totaal bar
-  const totaalBar = document.getElementById('inkoop-totaal-bar');
-  const totaalTekst = document.getElementById('inkoop-totaal-tekst');
-  const geldige = inkoopRijen.filter(r => r.merk && r.smaak && parseBedrag(r.prijsPerRol) > 0);
-  if (geldige.length > 0) {
-    const totaalRollen = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1), 0);
-    const totaalBakjes = totaalRollen * BAKJES_PER_ROL;
-    const totaalWaarde = geldige.reduce((a, r) => a + (parseInt(r.rollen) || 1) * parseBedrag(r.prijsPerRol), 0);
-    totaalBar.style.display = 'block';
-    totaalTekst.innerHTML = `${geldige.length} smaak${geldige.length > 1 ? 'en' : ''} &nbsp;|&nbsp; <strong>${totaalRollen} rollen</strong> &nbsp;|&nbsp; <strong>${totaalBakjes} bakjes</strong> &nbsp;|&nbsp; Totaal: <strong>€${formatBedrag(totaalWaarde)}</strong>`;
-  } else {
-    totaalBar.style.display = 'none';
-  }
+  updateInkoopTotaalBar();
 }
 
 function slaVariantOp(merk, smaak, aantalBakjes, prijsPerBakje) {
