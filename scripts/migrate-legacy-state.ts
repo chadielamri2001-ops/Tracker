@@ -217,7 +217,7 @@ async function main() {
         create: { key: "mix", kind: PriceKind.MIX, quantity: null, price: parsed.mix }
       });
     }
-  });
+  }, { maxWait: 20_000, timeout: 120_000 });
 }
 
 main()
