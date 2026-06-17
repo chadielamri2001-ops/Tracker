@@ -2,7 +2,7 @@
 
 import { PaymentMethod, PriceKind, SaleKind } from "@prisma/client";
 import { signOut } from "next-auth/react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { TrackerData } from "@/lib/validators";
 import { euro } from "@/lib/money";
 import {
@@ -24,6 +24,7 @@ type SaleMode = "normal" | "multi" | "mix";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type StatsPeriod = "dag" | "week" | "maand" | "4weken";
+type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { merk: string; smaak: string; rollen: number; prijsPerRol: string };
 
@@ -318,8 +319,16 @@ function diffLabel(current: number, previous: number, asMoney = true) {
   return `${arrow} ${value} (${Math.abs(pct).toFixed(1)}%)`;
 }
 
+function initialTheme(): ThemeMode {
+  if (typeof window === "undefined") return "light";
+  const saved = window.localStorage.getItem("snus_theme");
+  if (saved === "dark" || saved === "light") return saved;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: string }) {
   const [tab, setTab] = useState<Tab>("overzicht");
+  const [theme, setTheme] = useState<ThemeMode>(initialTheme);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const metrics = useMemo(() => {
     const omzet = data.sales.reduce((sum, sale) => sum + sale.bedrag, 0);
@@ -331,6 +340,11 @@ export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: 
     );
     return { omzet, inkoopWaarde, stuks, winst, voorraad: data.variants.reduce((sum, v) => sum + v.voorraad, 0) };
   }, [data]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem("snus_theme", theme);
+  }, [theme]);
 
   return (
     <>
@@ -345,6 +359,9 @@ export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: 
             )
           )}
         </nav>
+        <button className="ghost theme-toggle" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))} type="button">
+          {theme === "dark" ? "Licht" : "Donker"}
+        </button>
         <button className="ghost" onClick={() => signOut({ callbackUrl: "/login" })} type="button">
           Uitloggen
         </button>
