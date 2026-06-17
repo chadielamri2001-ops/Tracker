@@ -34,7 +34,16 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set("Content-Security-Policy", csp);
 
   const pathname = request.nextUrl.pathname;
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const sessionCookieName =
+    process.env.NODE_ENV === "production"
+      ? "__Secure-next-auth.session-token"
+      : "next-auth.session-token";
+
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+    cookieName: sessionCookieName
+  });
 
   if (!token && !isPublic(pathname)) {
     const loginUrl = new URL("/login", request.url);
