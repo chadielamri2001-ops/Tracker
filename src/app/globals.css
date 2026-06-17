@@ -203,7 +203,7 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
 .stack { display: grid; gap: 1rem; }
 .eyebrow { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 
-.segmented, .button-row, .summary-row {
+.segmented, .button-row, .summary-row, .pay-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
@@ -288,6 +288,126 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
 
 .sale-item-editor {
   width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 150px;
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 0.55rem;
+}
+
+.price-btn {
+  min-height: 64px;
+  display: grid;
+  gap: 0.15rem;
+  align-content: center;
+  justify-items: center;
+}
+
+.price-btn.selected {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.price-btn.mix-btn {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-2);
+}
+
+.price-btn.mix-btn.selected {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.price-btn .qty {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.price-btn .prijs {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.price-btn.selected .prijs {
+  color: color-mix(in srgb, #fff 82%, transparent);
+}
+
+.mix-builder {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.mix-builder h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sale-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.count-control {
+  display: grid;
+  grid-template-columns: 42px minmax(58px, 1fr) 42px;
+  gap: 0.35rem;
+}
+
+.count-control button,
+.count-control input {
+  height: 42px;
+  text-align: center;
+}
+
+.mix-total {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.mix-total.ok strong {
+  color: var(--accent);
+}
+
+.mix-total.over strong {
+  color: var(--danger);
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.pay-btn.selected-cash {
+  background: #e8edf5;
+  border-color: #1d3557;
+  color: #14263f;
+}
+
+.pay-btn.selected-tikkie {
+  background: #eef0ff;
+  border-color: #3d5af1;
+  color: #2241d0;
+}
+
+.pay-btn.selected-pof {
+  background: #fff4e5;
+  border-color: #b35a00;
+  color: #7a3d00;
 }
 
 .summary-row {
@@ -426,4 +546,7 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   .debt-row { grid-template-columns: 1fr; }
   .inline-grid { grid-template-columns: 1fr; }
   .purchase-row { grid-template-columns: 1fr; }
+  .sale-line,
+  .sale-item-editor { grid-template-columns: 1fr; }
+  .price-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

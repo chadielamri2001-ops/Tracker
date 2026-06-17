@@ -210,6 +210,15 @@ function purchaseFlavorOptions(data: TrackerData, merk: string) {
   return uniqueValues([...fixed, ...existing]);
 }
 
+function firstVariantId(data: TrackerData) {
+  return data.variants[0]?.id || "";
+}
+
+function paymentButtonClass(current: PaymentMethod, value: PaymentMethod) {
+  const suffix = value === PaymentMethod.CASH ? "cash" : value === PaymentMethod.TIKKIE ? "tikkie" : "pof";
+  return current === value ? `pay-btn selected-${suffix}` : "pay-btn";
+}
+
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
   return data.sales.filter((sale) => (predicate ? predicate(sale) : true)).reduce(
     (stats, sale) => {
@@ -579,15 +588,17 @@ function PurchaseView({ data }: { data: TrackerData }) {
 
 function SalesView({ data }: { data: TrackerData }) {
   const [mode, setMode] = useState<SaleMode>("normal");
+  const [saleQty, setSaleQty] = useState(1);
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [priceMode, setPriceMode] = useState<PriceMode>("standaard");
   const [delivery, setDelivery] = useState(false);
   const [customPrice, setCustomPrice] = useState("");
   const [rolAantal, setRolAantal] = useState(1);
-  const [normalItem, setNormalItem] = useState<DraftItem>({ variantId: data.variants[0]?.id || "", aantal: 1 });
-  const [items, setItems] = useState<DraftItem[]>([{ variantId: data.variants[0]?.id || "", aantal: 1 }]);
+  const [normalItem, setNormalItem] = useState<DraftItem>({ variantId: firstVariantId(data), aantal: 1 });
+  const [items, setItems] = useState<DraftItem[]>([{ variantId: firstVariantId(data), aantal: 1 }]);
 
-  const activeItems = mode === "normal" ? [normalItem] : items.filter((item) => item.variantId && item.aantal > 0);
+  const targetQty = mode === "mix" ? 10 * rolAantal : saleQty;
+  const activeItems = mode === "normal" ? [{ ...normalItem, aantal: 1 }] : items.filter((item) => item.variantId && item.aantal > 0);
   const totalQty = activeItems.reduce((sum, item) => sum + item.aantal, 0);
   const base =
     mode === "mix"
@@ -595,23 +606,54 @@ function SalesView({ data }: { data: TrackerData }) {
       : priceMode === "aangepast"
         ? Number(customPrice.replace(",", ".")) || 0
         : priceMode === "vasteKlant"
-          ? FIXED_CUSTOMER_PRICES[totalQty] ?? totalQty * 5
-          : priceFor(data, totalQty);
+          ? FIXED_CUSTOMER_PRICES[targetQty] ?? targetQty * 5
+          : priceFor(data, targetQty);
   const total = base + (delivery ? DELIVERY_PRICE : 0);
   const saleKind = mode === "mix" ? SaleKind.MIX : mode === "multi" ? SaleKind.MULTI : SaleKind.NORMAL;
+  const hasExactQty = mode === "normal" || totalQty === targetQty;
+  const canSubmit = total > 0 && activeItems.length > 0 && activeItems.every((item) => item.variantId) && hasExactQty;
 
   function setItem(index: number, patch: Partial<DraftItem>) {
     setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   }
 
+  function selectSaleOption(nextQty: number, nextMode: SaleMode) {
+    setMode(nextMode);
+    setSaleQty(nextQty);
+    setPriceMode("standaard");
+    setDelivery(false);
+    setCustomPrice("");
+    setRolAantal(1);
+    if (nextMode === "normal") {
+      setNormalItem((current) => ({ variantId: current.variantId || firstVariantId(data), aantal: 1 }));
+    } else {
+      setItems([{ variantId: firstVariantId(data), aantal: 1 }]);
+    }
+  }
+
   return (
     <section>
       <h1>Verkoop</h1>
-      <Panel title="Kies type verkoop">
-        <div className="segmented">
-          <button className={mode === "normal" ? "active" : ""} onClick={() => setMode("normal")} type="button">Normaal</button>
-          <button className={mode === "multi" ? "active" : ""} onClick={() => setMode("multi")} type="button">Multi</button>
-          <button className={mode === "mix" ? "active" : ""} onClick={() => setMode("mix")} type="button">Mix rol</button>
+      <Panel title="Kies aantal en prijs">
+        <div className="price-grid" aria-label="Verkoopprijs kiezen">
+          {Array.from({ length: 9 }, (_, index) => index + 1).map((quantity) => {
+            const nextMode: SaleMode = quantity === 1 ? "normal" : "multi";
+            const selected = mode !== "mix" && saleQty === quantity;
+            return (
+              <button className={`price-btn${selected ? " selected" : ""}`} key={quantity} onClick={() => selectSaleOption(quantity, nextMode)} type="button">
+                <span className="qty">{quantity}</span>
+                <span className="prijs">{euro(priceFor(data, quantity))}</span>
+              </button>
+            );
+          })}
+          <button className={`price-btn${mode === "multi" && saleQty === 10 ? " selected" : ""}`} onClick={() => selectSaleOption(10, "multi")} type="button">
+            <span className="qty">Rol</span>
+            <span className="prijs">{euro(priceFor(data, 10))}</span>
+          </button>
+          <button className={`price-btn mix-btn${mode === "mix" ? " selected" : ""}`} onClick={() => selectSaleOption(10, "mix")} type="button">
+            <span className="qty">Mix rol</span>
+            <span className="prijs">{euro(mixPrice(data))}</span>
+          </button>
         </div>
       </Panel>
       <Panel title="Verkoop registreren">
@@ -622,28 +664,35 @@ function SalesView({ data }: { data: TrackerData }) {
           <input type="hidden" name="basisBedrag" value={base.toFixed(2)} />
           <input type="hidden" name="bezorgkosten" value={delivery ? DELIVERY_PRICE.toFixed(2) : "0"} />
           <input type="hidden" name="rolAantal" value={mode === "mix" ? rolAantal : ""} />
+          <input type="hidden" name="betaalwijze" value={payment} />
 
           {mode === "normal" ? (
-            <SaleItemEditor data={data} item={normalItem} onChange={setNormalItem} />
+            <SaleItemEditor data={data} item={normalItem} onChange={setNormalItem} showCount={false} />
           ) : (
             <div className="stack">
+              <div className="mix-builder">
+                <h3>{mode === "mix" ? `Stel je mix rol samen (${targetQty} stuks)` : `Kies je smaken (${targetQty} stuks)`}</h3>
               {items.map((item, index) => (
-                <div className="inline-grid" key={index}>
-                  <SaleItemEditor data={data} item={item} onChange={(next) => setItem(index, next)} />
+                <div className="sale-line" key={index}>
+                  <SaleItemEditor data={data} item={item} onChange={(next) => setItem(index, next)} showCount />
                   {items.length > 1 ? (
-                    <button type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>
-                      Verwijder rij
+                    <button className="danger" type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>
+                      Verwijder
                     </button>
                   ) : null}
                 </div>
               ))}
-              <button type="button" onClick={() => setItems((current) => [...current, { variantId: data.variants[0]?.id || "", aantal: 1 }])}>
-                Rij toevoegen
-              </button>
+                <div className={`mix-total ${totalQty === targetQty ? "ok" : totalQty > targetQty ? "over" : ""}`}>
+                  Totaal: <strong>{totalQty} / {targetQty}</strong>
+                </div>
+                <button type="button" onClick={() => setItems((current) => [...current, { variantId: firstVariantId(data), aantal: 1 }])}>
+                  + Smaak toevoegen
+                </button>
+              </div>
               {mode === "mix" ? (
                 <label>
                   Aantal mixrollen
-                  <input min={1} type="number" value={rolAantal} onChange={(event) => setRolAantal(Number(event.target.value) || 1)} />
+                  <input min={1} type="number" value={rolAantal} onChange={(event) => setRolAantal(Math.max(1, Number(event.target.value) || 1))} />
                 </label>
               ) : null}
             </div>
@@ -670,20 +719,18 @@ function SalesView({ data }: { data: TrackerData }) {
             </label>
           ) : null}
 
-          <label className="checkbox">
-            <input checked={delivery} onChange={(event) => setDelivery(event.target.checked)} type="checkbox" />
-            Bezorging +{euro(DELIVERY_PRICE)}
-          </label>
+          <div className="segmented">
+            <button className={!delivery ? "active" : ""} onClick={() => setDelivery(false)} type="button">Afhalen</button>
+            <button className={delivery ? "active" : ""} onClick={() => setDelivery(true)} type="button">Bezorgen +{euro(DELIVERY_PRICE)}</button>
+          </div>
 
-          <div className="form-grid">
-            <label>
-              Betaalwijze
-              <select name="betaalwijze" value={payment} onChange={(event) => setPayment(event.target.value as PaymentMethod)}>
-                <option value={PaymentMethod.CASH}>Cash</option>
-                <option value={PaymentMethod.TIKKIE}>Tikkie</option>
-                <option value={PaymentMethod.POF}>Pof</option>
-              </select>
-            </label>
+          <div className="stack">
+            <span className="field-label">Betaalmethode</span>
+            <div className="pay-grid">
+              <button className={paymentButtonClass(payment, PaymentMethod.CASH)} onClick={() => setPayment(PaymentMethod.CASH)} type="button">Cash</button>
+              <button className={paymentButtonClass(payment, PaymentMethod.TIKKIE)} onClick={() => setPayment(PaymentMethod.TIKKIE)} type="button">Tikkie</button>
+              <button className={paymentButtonClass(payment, PaymentMethod.POF)} onClick={() => setPayment(PaymentMethod.POF)} type="button">Pof</button>
+            </div>
             {payment === PaymentMethod.POF ? (
               <label>
                 Naam klant
@@ -693,16 +740,17 @@ function SalesView({ data }: { data: TrackerData }) {
           </div>
 
           <div className="summary-row">
-            <strong>{totalQty} stuks</strong>
+            <span>{kindLabel(saleKind)}</span>
+            <strong>{totalQty} / {targetQty} stuks</strong>
             <strong>Totaal: {euro(total)}</strong>
-            {mode === "mix" ? <span className={totalQty === 10 * rolAantal ? "ok" : "danger-text"}>{totalQty} / {10 * rolAantal}</span> : null}
+            {!hasExactQty ? <span className="danger-text">Aantal klopt nog niet</span> : null}
           </div>
 
           <div className="button-row">
-            <button className="primary" type="submit" disabled={!total || activeItems.length === 0 || (mode === "mix" && totalQty !== 10 * rolAantal)}>
+            <button className="primary" type="submit" disabled={!canSubmit}>
               Verkoop opslaan
             </button>
-            <button name="concept" value="true" type="submit" disabled={!total || activeItems.length === 0}>
+            <button name="concept" value="true" type="submit" disabled={!canSubmit}>
               Concept opslaan
             </button>
           </div>
@@ -715,23 +763,63 @@ function SalesView({ data }: { data: TrackerData }) {
   );
 }
 
-function SaleItemEditor({ data, item, onChange }: { data: TrackerData; item: DraftItem; onChange: (item: DraftItem) => void }) {
+function SaleItemEditor({
+  data,
+  item,
+  onChange,
+  showCount
+}: {
+  data: TrackerData;
+  item: DraftItem;
+  onChange: (item: DraftItem) => void;
+  showCount: boolean;
+}) {
+  const selected = data.variants.find((variant) => variant.id === item.variantId);
+  const brands = uniqueValues(data.variants.map((variant) => variant.merk));
+  const flavors = data.variants.filter((variant) => variant.merk === selected?.merk);
+
+  function selectBrand(merk: string) {
+    const next = data.variants.find((variant) => variant.merk === merk);
+    onChange({ ...item, variantId: next?.id || "" });
+  }
+
+  function selectFlavor(smaak: string) {
+    const next = data.variants.find((variant) => variant.merk === selected?.merk && variant.smaak === smaak);
+    onChange({ ...item, variantId: next?.id || "" });
+  }
+
   return (
-    <div className="form-grid sale-item-editor">
+    <div className="sale-item-editor">
       <label>
-        Variant
-        <select value={item.variantId} onChange={(event) => onChange({ ...item, variantId: event.target.value })} required>
-          {data.variants.map((variant) => (
-            <option key={variant.id} value={variant.id}>
-              {variant.merk} - {variant.smaak} ({variant.voorraad} op voorraad)
-            </option>
+        Merk
+        <select value={selected?.merk || ""} onChange={(event) => selectBrand(event.target.value)} required>
+          <option value="">Kies merk</option>
+          {brands.map((brand) => (
+            <option key={brand} value={brand}>{brand}</option>
           ))}
         </select>
       </label>
       <label>
-        Aantal
-        <input min={1} type="number" value={item.aantal} onChange={(event) => onChange({ ...item, aantal: Number(event.target.value) || 1 })} />
+        Smaak
+        <select value={selected?.smaak || ""} onChange={(event) => selectFlavor(event.target.value)} required disabled={!selected?.merk}>
+          <option value="">Kies smaak</option>
+          {flavors.map((variant) => (
+            <option key={variant.id} value={variant.smaak}>
+              {variant.smaak} ({variant.voorraad} op voorraad)
+            </option>
+          ))}
+        </select>
       </label>
+      {showCount ? (
+        <label>
+          Aantal
+          <span className="count-control">
+            <button type="button" onClick={() => onChange({ ...item, aantal: Math.max(1, item.aantal - 1) })}>-</button>
+            <input min={1} type="number" value={item.aantal} onChange={(event) => onChange({ ...item, aantal: Math.max(1, Number(event.target.value) || 1) })} />
+            <button type="button" onClick={() => onChange({ ...item, aantal: item.aantal + 1 })}>+</button>
+          </span>
+        </label>
+      ) : null}
     </div>
   );
 }
