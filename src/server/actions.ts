@@ -69,6 +69,7 @@ async function createSaleFromInput(
     rolAantal?: number;
     betaalwijze: PaymentMethod;
     klantNaam?: string;
+    datum?: Date;
   }
 ) {
   if (input.betaalwijze === PaymentMethod.POF && !input.klantNaam) {
@@ -97,7 +98,8 @@ async function createSaleFromInput(
       bezorgkosten: input.bezorgkosten === undefined ? null : decimal(input.bezorgkosten),
       rolAantal: input.rolAantal ?? null,
       betaalwijze: input.betaalwijze,
-      klantNaam: input.betaalwijze === PaymentMethod.POF ? input.klantNaam : null
+      klantNaam: input.betaalwijze === PaymentMethod.POF ? input.klantNaam : null,
+      datum: input.datum
     }
   });
 
@@ -126,6 +128,7 @@ async function createSaleFromInput(
       data: {
         naam: input.klantNaam,
         bedrag: decimal(input.bedrag),
+        datum: input.datum,
         saleId: sale.id
       }
     });
@@ -164,6 +167,7 @@ function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
     rolAantal: formData.get("rolAantal"),
     betaalwijze: formData.get("betaalwijze"),
     klantNaam: formData.get("klantNaam"),
+    datum: formData.get("datum"),
     concept: formData.get("concept")
   });
 }
@@ -240,7 +244,8 @@ export async function addSale(formData: FormData) {
       basisBedrag: input.basisBedrag,
       bezorgkosten: input.bezorgkosten,
       betaalwijze: input.betaalwijze,
-      klantNaam: input.klantNaam
+      klantNaam: input.klantNaam,
+      datum: input.datum
     });
   });
 
@@ -280,6 +285,7 @@ async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
       rolAantal: input.rolAantal ?? null,
       betaalwijze: input.betaalwijze,
       klantNaam: input.betaalwijze === PaymentMethod.POF ? input.klantNaam : null,
+      createdAt: input.datum,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000)
     }
   });
@@ -309,7 +315,8 @@ export async function confirmConcept(formData: FormData) {
       bezorgkosten: concept.bezorgkosten === null ? undefined : Number(concept.bezorgkosten),
       rolAantal: concept.rolAantal ?? undefined,
       betaalwijze: concept.betaalwijze,
-      klantNaam: concept.klantNaam ?? undefined
+      klantNaam: concept.klantNaam ?? undefined,
+      datum: concept.createdAt
     });
     await tx.concept.delete({ where: { id } });
   });

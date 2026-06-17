@@ -91,6 +91,13 @@ function dateNl(value: string) {
   return new Intl.DateTimeFormat("nl-NL").format(new Date(value));
 }
 
+function dateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function dateKey(value: Date) {
   return new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(value);
 }
@@ -695,6 +702,7 @@ function SalesView({ data }: { data: TrackerData }) {
   const [delivery, setDelivery] = useState(false);
   const [customPrice, setCustomPrice] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [saleDate, setSaleDate] = useState("");
   const [rolAantal, setRolAantal] = useState(1);
   const [normalItem, setNormalItem] = useState<DraftItem>({ variantId: firstVariantId(data), aantal: 1 });
   const [items, setItems] = useState<DraftItem[]>([{ variantId: firstVariantId(data), aantal: 1 }]);
@@ -746,6 +754,7 @@ function SalesView({ data }: { data: TrackerData }) {
     setDelivery(false);
     setCustomPrice("");
     setCustomerName("");
+    setSaleDate(dateInputValue(new Date()));
     setRolAantal(1);
     setNormalItem({ variantId: firstVariantId(data), aantal: 1 });
     setItems([{ variantId: firstVariantId(data), aantal: 1 }]);
@@ -766,6 +775,7 @@ function SalesView({ data }: { data: TrackerData }) {
     setPayment(sale.betaalwijze);
     setDelivery((sale.bezorgkosten ?? 0) > 0);
     setCustomerName(sale.klantNaam ?? "");
+    setSaleDate(dateInputValue(new Date(sale.datum)));
     setNormalItem(draftItems[0] ? { ...draftItems[0], aantal: 1 } : { variantId: firstVariantId(data), aantal: 1 });
     setItems(draftItems.length ? draftItems : [{ variantId: firstVariantId(data), aantal: 1 }]);
 
@@ -784,6 +794,10 @@ function SalesView({ data }: { data: TrackerData }) {
   useEffect(() => {
     if (editingSaleId && !editingSale) resetSaleForm();
   }, [editingSaleId, editingSale]);
+
+  useEffect(() => {
+    if (!saleDate) setSaleDate(dateInputValue(new Date()));
+  }, [saleDate]);
 
   return (
     <section>
@@ -820,6 +834,11 @@ function SalesView({ data }: { data: TrackerData }) {
           <input type="hidden" name="bezorgkosten" value={delivery ? DELIVERY_PRICE.toFixed(2) : "0"} />
           <input type="hidden" name="rolAantal" value={mode === "mix" ? rolAantal : ""} />
           <input type="hidden" name="betaalwijze" value={payment} />
+
+          <label>
+            Verkoopdatum
+            <input name="datum" type="date" required value={saleDate} onChange={(event) => setSaleDate(event.target.value)} />
+          </label>
 
           {mode === "normal" ? (
             <SaleItemEditor data={data} item={normalItem} onChange={setNormalItem} showCount={false} />

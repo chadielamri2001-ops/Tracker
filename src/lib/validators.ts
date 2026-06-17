@@ -9,6 +9,19 @@ const optionalName = z
   .max(120)
   .optional()
   .transform((value) => (value ? value : undefined));
+const saleDate = z.preprocess((value) => {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return new Date("invalid");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return new Date("invalid");
+  }
+  return date;
+}, z.date().min(new Date("2020-01-01T00:00:00.000Z")).optional());
 
 export const purchaseInputSchema = z.object({
   merk: z.string().trim().min(1).max(80),
@@ -30,7 +43,8 @@ export const saleInputSchema = z.object({
   basisBedrag: z.preprocess((value) => (value ? parseMoneyInput(value) : undefined), z.number().finite().positive().max(100000).optional()),
   bezorgkosten: z.preprocess((value) => (value ? parseMoneyInput(value) : 0), z.number().finite().min(0).max(1000).default(0)),
   betaalwijze: z.nativeEnum(PaymentMethod),
-  klantNaam: optionalName
+  klantNaam: optionalName,
+  datum: saleDate
 });
 
 export const saleItemInputSchema = z.object({
@@ -47,6 +61,7 @@ export const multiSaleInputSchema = z.object({
   rolAantal: z.coerce.number().int().min(1).max(100).optional(),
   betaalwijze: z.nativeEnum(PaymentMethod),
   klantNaam: optionalName,
+  datum: saleDate,
   concept: z.preprocess((value) => value === "on" || value === "true", z.boolean().default(false))
 });
 
