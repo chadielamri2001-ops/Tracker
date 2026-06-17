@@ -8,7 +8,7 @@ import { euro } from "@/lib/money";
 import {
   addDebt,
   addMultiSale,
-  addPurchase,
+  addPurchases,
   confirmConcept,
   deleteConcept,
   deleteDebt,
@@ -24,10 +24,52 @@ type SaleMode = "normal" | "multi" | "mix";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type DraftItem = { variantId: string; aantal: number };
+type PurchaseDraft = { merk: string; smaak: string; rollen: number; prijsPerRol: string };
 
 const DELIVERY_PRICE = 2.5;
+const BAKJES_PER_ROL = 10;
 const ADMIN_ANCHOR = new Date(2026, 3, 17);
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FIXED_BRANDS = ["Iceberg", "Velo", "Pablo", "Killa", "Cuba", "Fox"];
+const FIXED_FLAVORS: Record<string, string[]> = {
+  Pablo: [
+    "Ice Cold",
+    "Ice Cold Mini",
+    "Red",
+    "Green Mint",
+    "Blue Mint",
+    "Frosted Mint",
+    "Frosted Ice",
+    "Mango Ice",
+    "Watermelon Lemon",
+    "Pineapple",
+    "Peer",
+    "Lemonade",
+    "Pink Lemonade",
+    "Blueberry Cranberry Cherry",
+    "Blueberry Peach Ice",
+    "Strawberry Kiwi",
+    "Cola",
+    "Bubblegum",
+    "Kiwi",
+    "Orange",
+    "Banana Ice",
+    "Blue Raspberry",
+    "Passionfruit",
+    "Strawberry Watermelon",
+    "Strawberry Cheesecake",
+    "Strawberry Lychee",
+    "Dark Cherry",
+    "Cherry Cola",
+    "Grape Ice",
+    "Tropical Punch"
+  ],
+  Killa: ["Cold Mint", "Watermeloen", "Mango Ice", "Cola", "Appel", "13", "Pineapple", "Blueberry", "Strawberry Watermeloen", "Grape Ice", "Bubblegum"],
+  Cuba: ["Peach", "Cherry", "Watermeloen", "Blueberry", "Banana Mint", "Apple Juice"],
+  Fox: ["White Fox Slim Mint", "White Fox Slim Double Mint"],
+  Iceberg: ["Araska", "Melon Peach", "Black", "Energy"],
+  Velo: []
+};
 const FIXED_CUSTOMER_PRICES: Record<number, number> = {
   1: 5,
   2: 10,
@@ -151,6 +193,21 @@ function mixPrice(data: TrackerData) {
 function variantName(data: TrackerData, id: string) {
   const variant = data.variants.find((item) => item.id === id);
   return variant ? `${variant.merk} ${variant.smaak}` : "Onbekend";
+}
+
+function parseMoneyDraft(value: string) {
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+}
+
+function purchaseFlavorOptions(data: TrackerData, merk: string) {
+  const existing = data.variants.filter((variant) => !merk || variant.merk === merk).map((variant) => variant.smaak);
+  const fixed = merk ? FIXED_FLAVORS[merk] || [] : Object.values(FIXED_FLAVORS).flat();
+  return uniqueValues([...fixed, ...existing]);
 }
 
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
@@ -375,30 +432,105 @@ function TopFlopCard({ title, item, tone }: { title: string; item: { label: stri
 }
 
 function PurchaseView({ data }: { data: TrackerData }) {
-  const brands = [...new Set(data.variants.map((variant) => variant.merk))];
+  const [rows, setRows] = useState<PurchaseDraft[]>([{ merk: "", smaak: "", rollen: 1, prijsPerRol: "" }]);
+  const brands = useMemo(() => uniqueValues([...FIXED_BRANDS, ...data.variants.map((variant) => variant.merk)]), [data.variants]);
+  const totalRollen = rows.reduce((sum, row) => sum + row.rollen, 0);
+  const totalBakjes = totalRollen * BAKJES_PER_ROL;
+  const totalEuro = rows.reduce((sum, row) => sum + parseMoneyDraft(row.prijsPerRol) * row.rollen, 0);
+  const filledRows = rows.filter((row) => row.merk.trim() && row.smaak.trim() && row.rollen > 0 && parseMoneyDraft(row.prijsPerRol) > 0);
+
+  function setRow(index: number, patch: Partial<PurchaseDraft>) {
+    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
   return (
     <section>
       <h1>Inkoop</h1>
       <Panel title="Inkoop toevoegen">
-        <form action={addPurchase} className="form-grid">
-          <label>
-            Merk
-            <input name="merk" list="merken" required maxLength={80} />
-            <datalist id="merken">{brands.map((brand) => <option key={brand} value={brand} />)}</datalist>
-          </label>
-          <label>
-            Smaak
-            <input name="smaak" required maxLength={120} />
-          </label>
-          <label>
-            Rollen
-            <input name="rollen" type="number" min={1} defaultValue={1} required />
-          </label>
-          <label>
-            Prijs per rol
-            <input name="prijsPerRol" inputMode="decimal" placeholder="16,25" required />
-          </label>
-          <button className="primary" type="submit">Inkoop verwerken</button>
+        <form action={addPurchases} className="stack">
+          <input type="hidden" name="rows" value={JSON.stringify(rows)} />
+          <datalist id="purchase-brands">{brands.map((brand) => <option key={brand} value={brand} />)}</datalist>
+          <div className="purchase-rows">
+            {rows.map((row, index) => {
+              const pricePerRoll = parseMoneyDraft(row.prijsPerRol);
+              const pricePerPiece = pricePerRoll / BAKJES_PER_ROL;
+              const flavorOptions = purchaseFlavorOptions(data, row.merk);
+              const flavorListId = `purchase-flavors-${index}`;
+              return (
+                <div className="purchase-row" key={index}>
+                  <label>
+                    Merk
+                    <input
+                      list="purchase-brands"
+                      maxLength={80}
+                      required
+                      value={row.merk}
+                      onChange={(event) => setRow(index, { merk: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Smaak
+                    <input
+                      list={flavorListId}
+                      maxLength={120}
+                      required
+                      value={row.smaak}
+                      onChange={(event) => setRow(index, { smaak: event.target.value })}
+                    />
+                    <datalist id={flavorListId}>{flavorOptions.map((flavor) => <option key={flavor} value={flavor} />)}</datalist>
+                  </label>
+                  <label>
+                    Rollen
+                    <span className="roll-control">
+                      <button type="button" onClick={() => setRow(index, { rollen: Math.max(1, row.rollen - 1) })}>-</button>
+                      <input
+                        min={1}
+                        required
+                        type="number"
+                        value={row.rollen}
+                        onChange={(event) => setRow(index, { rollen: Math.max(1, Number(event.target.value) || 1) })}
+                      />
+                      <button type="button" onClick={() => setRow(index, { rollen: row.rollen + 1 })}>+</button>
+                    </span>
+                  </label>
+                  <label>
+                    Prijs per rol
+                    <input
+                      inputMode="decimal"
+                      placeholder="16,25"
+                      required
+                      value={row.prijsPerRol}
+                      onChange={(event) => setRow(index, { prijsPerRol: event.target.value })}
+                    />
+                  </label>
+                  <div className="purchase-chip">
+                    <span>Prijs/bakje</span>
+                    <strong>{pricePerPiece > 0 ? euro(pricePerPiece) : "-"}</strong>
+                  </div>
+                  <button
+                    className="danger"
+                    type="button"
+                    onClick={() => setRows((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)))}
+                    disabled={rows.length === 1}
+                  >
+                    Verwijder
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="purchase-total">
+            <span>{filledRows.length} smaken</span>
+            <span>{totalRollen} rollen</span>
+            <span>{totalBakjes} bakjes</span>
+            <strong>{euro(totalEuro)}</strong>
+          </div>
+          <div className="button-row">
+            <button type="button" onClick={() => setRows((current) => [...current, { merk: "", smaak: "", rollen: 1, prijsPerRol: "" }])}>
+              Rij toevoegen
+            </button>
+            <button className="primary" type="submit">Inkoop verwerken</button>
+          </div>
         </form>
       </Panel>
       <Panel title="Inkoophistorie">
@@ -410,28 +542,33 @@ function PurchaseView({ data }: { data: TrackerData }) {
                 <th>Merk</th>
                 <th>Smaak</th>
                 <th>Rollen</th>
-                <th>Prijs/rol</th>
-                <th>Prijs/stuk</th>
+                <th>Prijs/bakje</th>
+                <th>Totaal</th>
+                <th>Gem. inkoop</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {data.purchases.map((purchase) => (
-                <tr key={purchase.id}>
-                  <td>{dateNl(purchase.datum)}</td>
-                  <td>{purchase.merk}</td>
-                  <td>{purchase.smaak}</td>
-                  <td>{purchase.rollen}</td>
-                  <td>{euro(purchase.prijsPerRol)}</td>
-                  <td>{euro(purchase.prijsPerStuk)}</td>
-                  <td>
-                    <form action={deletePurchase}>
-                      <input name="id" type="hidden" value={purchase.id} />
-                      <button className="danger" type="submit">Verwijder</button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
+              {data.purchases.map((purchase) => {
+                const variant = data.variants.find((item) => item.merk === purchase.merk && item.smaak === purchase.smaak);
+                return (
+                  <tr key={purchase.id}>
+                    <td>{dateNl(purchase.datum)}</td>
+                    <td>{purchase.merk}</td>
+                    <td>{purchase.smaak}</td>
+                    <td>{purchase.rollen}</td>
+                    <td>{euro(purchase.prijsPerStuk)}</td>
+                    <td>{euro(purchase.prijsPerRol * purchase.rollen)}</td>
+                    <td>{variant ? euro(variant.inkoopPrijs) : "-"}</td>
+                    <td>
+                      <form action={deletePurchase}>
+                        <input name="id" type="hidden" value={purchase.id} />
+                        <button className="danger" type="submit">Verwijder</button>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

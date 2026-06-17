@@ -7,7 +7,16 @@ import { assertRateLimit } from "@/lib/rate-limit";
 import { assertSameOrigin, clientIdentifier } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { debtInputSchema, idSchema, multiSaleInputSchema, nameSchema, priceInputSchema, purchaseInputSchema, saleInputSchema } from "@/lib/validators";
+import {
+  debtInputSchema,
+  idSchema,
+  multiSaleInputSchema,
+  nameSchema,
+  priceInputSchema,
+  purchaseInputSchema,
+  purchaseRowsInputSchema,
+  saleInputSchema
+} from "@/lib/validators";
 
 const BAKJES_PER_ROL = 10;
 
@@ -28,6 +37,18 @@ const formItemsSchema = z
     }
   })
   .pipe(z.array(z.object({ variantId: z.string().cuid(), aantal: z.coerce.number().int().min(1).max(1000) })).min(1).max(25));
+
+const formPurchaseRowsSchema = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Ongeldige inkoopregels." });
+      return z.NEVER;
+    }
+  })
+  .pipe(purchaseRowsInputSchema);
 
 function decimal(value: number, decimals = 2) {
   return new Prisma.Decimal(value.toFixed(decimals));
@@ -128,44 +149,61 @@ function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
   });
 }
 
+async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.infer<typeof purchaseInputSchema>) {
+  const aantal = input.rollen * BAKJES_PER_ROL;
+  const prijsPerStuk = input.prijsPerRol / BAKJES_PER_ROL;
+  const existing = await tx.variant.findUnique({
+    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } }
+  });
+
+  const nextInkoopPrijs = existing?.voorraad
+    ? (Number(existing.inkoopPrijs) * existing.voorraad + prijsPerStuk * aantal) / (existing.voorraad + aantal)
+    : prijsPerStuk;
+
+  const variant = await tx.variant.upsert({
+    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } },
+    update: {
+      voorraad: { increment: aantal },
+      inkoopPrijs: new Prisma.Decimal(nextInkoopPrijs.toFixed(4))
+    },
+    create: {
+      merk: input.merk,
+      smaak: input.smaak,
+      voorraad: aantal,
+      inkoopPrijs: new Prisma.Decimal(prijsPerStuk.toFixed(4))
+    }
+  });
+
+  await tx.purchase.create({
+    data: {
+      variantId: variant.id,
+      rollen: input.rollen,
+      aantal,
+      prijsPerRol: new Prisma.Decimal(input.prijsPerRol.toFixed(2)),
+      prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
+    }
+  });
+}
+
 export async function addPurchase(formData: FormData) {
   await guardWrite("write:purchase");
   const input = purchaseInputSchema.parse(Object.fromEntries(formData));
-  const aantal = input.rollen * BAKJES_PER_ROL;
-  const prijsPerStuk = input.prijsPerRol / BAKJES_PER_ROL;
 
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.variant.findUnique({
-      where: { merk_smaak: { merk: input.merk, smaak: input.smaak } }
-    });
+    await createPurchaseFromInput(tx, input);
+  });
 
-    const nextInkoopPrijs = existing?.voorraad
-      ? (Number(existing.inkoopPrijs) * existing.voorraad + prijsPerStuk * aantal) / (existing.voorraad + aantal)
-      : prijsPerStuk;
+  revalidatePath("/");
+}
 
-    const variant = await tx.variant.upsert({
-      where: { merk_smaak: { merk: input.merk, smaak: input.smaak } },
-      update: {
-        voorraad: { increment: aantal },
-        inkoopPrijs: new Prisma.Decimal(nextInkoopPrijs.toFixed(4))
-      },
-      create: {
-        merk: input.merk,
-        smaak: input.smaak,
-        voorraad: aantal,
-        inkoopPrijs: new Prisma.Decimal(prijsPerStuk.toFixed(4))
-      }
-    });
+export async function addPurchases(formData: FormData) {
+  await guardWrite("write:purchase");
+  const rows = formPurchaseRowsSchema.parse(String(formData.get("rows") || "[]"));
 
-    await tx.purchase.create({
-      data: {
-        variantId: variant.id,
-        rollen: input.rollen,
-        aantal,
-        prijsPerRol: new Prisma.Decimal(input.prijsPerRol.toFixed(2)),
-        prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
-      }
-    });
+  await prisma.$transaction(async (tx) => {
+    for (const row of rows) {
+      await createPurchaseFromInput(tx, row);
+    }
   });
 
   revalidatePath("/");

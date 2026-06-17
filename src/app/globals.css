@@ -223,6 +223,69 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   align-items: end;
 }
 
+.purchase-rows {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.purchase-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 150px 150px 120px auto;
+  gap: 0.7rem;
+  align-items: end;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.roll-control {
+  display: grid;
+  grid-template-columns: 42px minmax(58px, 1fr) 42px;
+  gap: 0.35rem;
+}
+
+.roll-control button,
+.roll-control input {
+  height: 42px;
+  text-align: center;
+}
+
+.purchase-chip {
+  min-height: 42px;
+  display: grid;
+  align-content: center;
+  gap: 0.1rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.purchase-chip span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.purchase-total {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.purchase-total span,
+.purchase-total strong {
+  white-space: nowrap;
+}
+
 .sale-item-editor {
   width: 100%;
 }
@@ -362,4 +425,5 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   .shell { padding: 1rem; }
   .debt-row { grid-template-columns: 1fr; }
   .inline-grid { grid-template-columns: 1fr; }
+  .purchase-row { grid-template-columns: 1fr; }
 }

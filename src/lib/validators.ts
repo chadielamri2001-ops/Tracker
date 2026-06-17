@@ -17,6 +17,12 @@ export const purchaseInputSchema = z.object({
   prijsPerRol: money
 });
 
+export const purchaseRowsInputSchema = z.array(purchaseInputSchema).min(1).max(50);
+
+export const purchaseBatchInputSchema = z.object({
+  rows: purchaseRowsInputSchema
+});
+
 export const saleInputSchema = z.object({
   variantId: z.string().cuid(),
   aantal: z.coerce.number().int().min(1).max(1000),
