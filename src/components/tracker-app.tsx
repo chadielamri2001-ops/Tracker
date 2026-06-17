@@ -321,8 +321,7 @@ function diffLabel(current: number, previous: number, asMoney = true) {
   return `${arrow} ${value} (${Math.abs(pct).toFixed(1)}%)`;
 }
 
-function initialTheme(): ThemeMode {
-  if (typeof window === "undefined") return "light";
+function preferredTheme(): ThemeMode {
   const saved = window.localStorage.getItem("snus_theme");
   if (saved === "dark" || saved === "light") return saved;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -338,7 +337,8 @@ function saleItemsAsDraft(sale: SaleRecord) {
 
 export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: string }) {
   const [tab, setTab] = useState<Tab>("overzicht");
-  const [theme, setTheme] = useState<ThemeMode>(initialTheme);
+  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [themeReady, setThemeReady] = useState(false);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const metrics = useMemo(() => {
     const omzet = data.sales.reduce((sum, sale) => sum + sale.bedrag, 0);
@@ -352,9 +352,18 @@ export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: 
   }, [data]);
 
   useEffect(() => {
+    const nextTheme = preferredTheme();
+    setTheme(nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+    window.localStorage.setItem("snus_theme", nextTheme);
+    setThemeReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!themeReady) return;
     document.documentElement.setAttribute("data-theme", theme);
     window.localStorage.setItem("snus_theme", theme);
-  }, [theme]);
+  }, [theme, themeReady]);
 
   return (
     <>
@@ -975,14 +984,15 @@ function SaleItemEditor({
 }
 
 function ConceptsView({ data }: { data: TrackerData }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const activeConcepts = data.concepts.filter((concept) => new Date(concept.expiresAt).getTime() > now);
+  const activeConcepts = now === null ? data.concepts : data.concepts.filter((concept) => new Date(concept.expiresAt).getTime() > now);
   if (activeConcepts.length === 0) return null;
 
   return (
@@ -1001,16 +1011,22 @@ function ConceptsView({ data }: { data: TrackerData }) {
           </thead>
           <tbody>
             {activeConcepts.map((concept) => {
-              const remainingMs = Math.max(0, new Date(concept.expiresAt).getTime() - now);
-              const minutes = Math.floor(remainingMs / 60_000);
-              const seconds = Math.floor((remainingMs % 60_000) / 1000);
+              const remainingMs = now === null ? null : Math.max(0, new Date(concept.expiresAt).getTime() - now);
+              const isLoading = remainingMs === null;
+              const safeRemainingMs = remainingMs ?? 0;
+              const minutes = Math.floor(safeRemainingMs / 60_000);
+              const seconds = Math.floor((safeRemainingMs % 60_000) / 1000);
               return (
                 <tr key={concept.id}>
                   <td>{dateNl(concept.createdAt)}</td>
                   <td>{concept.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
                   <td>{paymentLabel(concept.betaalwijze)}{concept.klantNaam ? ` - ${concept.klantNaam}` : ""}</td>
                   <td>{euro(concept.bedrag)}</td>
-                  <td><span className={`countdown${minutes < 10 ? " urgent" : ""}`}>{minutes}m {seconds.toString().padStart(2, "0")}s</span></td>
+                  <td>
+                    <span className={`countdown${!isLoading && minutes < 10 ? " urgent" : ""}`}>
+                      {isLoading ? "--" : `${minutes}m ${seconds.toString().padStart(2, "0")}s`}
+                    </span>
+                  </td>
                   <td className="button-row">
                     <form action={confirmConcept}>
                       <input name="id" type="hidden" value={concept.id} />
