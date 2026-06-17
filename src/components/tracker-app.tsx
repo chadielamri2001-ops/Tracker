@@ -22,9 +22,12 @@ import {
 type Tab = "overzicht" | "inkoop" | "verkoop" | "voorraad" | "statistieken" | "poflijst" | "instellingen";
 type SaleMode = "normal" | "multi" | "mix";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
+type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type DraftItem = { variantId: string; aantal: number };
 
 const DELIVERY_PRICE = 2.5;
+const ADMIN_ANCHOR = new Date(2026, 3, 17);
+const DAY_MS = 24 * 60 * 60 * 1000;
 const FIXED_CUSTOMER_PRICES: Record<number, number> = {
   1: 5,
   2: 10,
@@ -40,6 +43,87 @@ const FIXED_CUSTOMER_PRICES: Record<number, number> = {
 
 function dateNl(value: string) {
   return new Intl.DateTimeFormat("nl-NL").format(new Date(value));
+}
+
+function dateKey(value: Date) {
+  return new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(value);
+}
+
+function normalizeDate(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function addDays(value: Date, days: number) {
+  const next = normalizeDate(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function calendarDayDiff(a: Date, b: Date) {
+  return Math.round(
+    (Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) - Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())) /
+      DAY_MS
+  );
+}
+
+function adminDate(value: Date, includeYear = false) {
+  return value.toLocaleDateString("nl-NL", includeYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+}
+
+function getAdministrativePeriod(value: Date) {
+  const date = normalizeDate(value);
+  const diff = calendarDayDiff(date, ADMIN_ANCHOR);
+  if (diff < 0) return null;
+  const periodIndex = Math.floor(diff / 7);
+  const start = addDays(ADMIN_ANCHOR, periodIndex * 7);
+  const end = addDays(start, 6);
+  const endExclusive = addDays(start, 7);
+  return {
+    periodIndex,
+    weekNumber: periodIndex + 1,
+    start,
+    end,
+    endExclusive,
+    label: `Periode ${periodIndex + 1} - ${adminDate(start)} t/m ${adminDate(end, true)}`
+  };
+}
+
+function getPeriodBounds(period: OverviewPeriod, now = new Date()) {
+  const today = normalizeDate(now);
+  if (period === "vandaag") return { start: today, end: addDays(today, 1), label: "vandaag" };
+  if (period === "week") {
+    const admin = getAdministrativePeriod(today);
+    return admin ? { start: admin.start, end: admin.endExclusive, label: admin.label } : null;
+  }
+  if (period === "maand") {
+    return {
+      start: new Date(today.getFullYear(), today.getMonth(), 1),
+      end: new Date(today.getFullYear(), today.getMonth() + 1, 1),
+      label: "deze maand"
+    };
+  }
+  return null;
+}
+
+function getPreviousBounds(period: OverviewPeriod, now = new Date()) {
+  const today = normalizeDate(now);
+  if (period === "vandaag") return { start: addDays(today, -1), end: today, label: "gisteren" };
+  if (period === "week") {
+    const current = getAdministrativePeriod(today);
+    if (!current) return null;
+    const start = addDays(current.start, -7);
+    const end = current.start;
+    const previous = getAdministrativePeriod(start);
+    return { start, end, label: previous?.label || "vorige periode" };
+  }
+  if (period === "maand") {
+    return {
+      start: new Date(today.getFullYear(), today.getMonth() - 1, 1),
+      end: new Date(today.getFullYear(), today.getMonth(), 1),
+      label: "vorige maand"
+    };
+  }
+  return null;
 }
 
 function paymentLabel(value: PaymentMethod) {
@@ -67,6 +151,40 @@ function mixPrice(data: TrackerData) {
 function variantName(data: TrackerData, id: string) {
   const variant = data.variants.find((item) => item.id === id);
   return variant ? `${variant.merk} ${variant.smaak}` : "Onbekend";
+}
+
+function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
+  return data.sales.filter((sale) => (predicate ? predicate(sale) : true)).reduce(
+    (stats, sale) => {
+      stats.omzet += sale.bedrag;
+      stats.transacties += 1;
+      for (const item of sale.items) {
+        const variant = data.variants.find((v) => v.id === item.variantId);
+        stats.stuks += item.aantal;
+        stats.winst += item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
+      }
+      return stats;
+    },
+    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
+  );
+}
+
+function saleInBounds(sale: TrackerData["sales"][number], bounds: { start: Date; end: Date } | null) {
+  if (!bounds) return true;
+  const date = normalizeDate(new Date(sale.datum));
+  return date >= bounds.start && date < bounds.end;
+}
+
+function periodLabel(period: OverviewPeriod) {
+  return period === "vandaag" ? "vandaag" : period === "week" ? "deze periode" : period === "maand" ? "deze maand" : "alle tijd";
+}
+
+function diffLabel(current: number, previous: number, asMoney = true) {
+  const diff = current - previous;
+  const pct = previous !== 0 ? (diff / Math.abs(previous)) * 100 : current > 0 ? 100 : 0;
+  const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "-";
+  const value = asMoney ? euro(Math.abs(diff)) : String(Math.abs(diff));
+  return `${arrow} ${value} (${Math.abs(pct).toFixed(1)}%)`;
 }
 
 export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: string }) {
@@ -115,15 +233,49 @@ export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: 
 }
 
 function Overview({ data, metrics }: { data: TrackerData; metrics: Record<string, number> }) {
+  const [period, setPeriod] = useState<OverviewPeriod>("alles");
+  const bounds = getPeriodBounds(period);
+  const filteredStats = saleStats(data, (sale) => saleInBounds(sale, bounds));
+  const margin = filteredStats.omzet > 0 ? (filteredStats.winst / filteredStats.omzet) * 100 : 0;
+  const previousBounds = getPreviousBounds(period);
+  const previousStats = previousBounds ? saleStats(data, (sale) => saleInBounds(sale, previousBounds)) : null;
+  const voorraadWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
+
   return (
     <section>
-      <h1>Overzicht</h1>
-      <div className="metric-grid">
-        <Metric label="Omzet" value={euro(metrics.omzet)} />
-        <Metric label="Winst" value={euro(metrics.winst)} />
-        <Metric label="Bakjes verkocht" value={String(metrics.stuks)} />
-        <Metric label="Voorraad" value={String(metrics.voorraad)} sub={`${euro(metrics.inkoopWaarde)} inkoop`} />
+      <div className="section-header">
+        <h1>Overzicht</h1>
+        <div className="segmented">
+          {([
+            ["vandaag", "Vandaag"],
+            ["week", "Deze periode"],
+            ["maand", "Deze maand"],
+            ["alles", "Alle tijd"]
+          ] as Array<[OverviewPeriod, string]>).map(([value, label]) => (
+            <button className={period === value ? "active" : ""} key={value} onClick={() => setPeriod(value)} type="button">
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
+      <div className="metric-grid">
+        <Metric label={`Omzet (${periodLabel(period)})`} value={euro(filteredStats.omzet)} />
+        <Metric label={`Winst (${periodLabel(period)})`} value={euro(filteredStats.winst)} tone={filteredStats.winst >= 0 ? "good" : "bad"} />
+        <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
+        <Metric label="Bakjes verkocht" value={String(filteredStats.stuks)} />
+        <Metric label="Voorraad (stuks)" value={String(metrics.voorraad)} sub={`${euro(voorraadWaarde)} inkoop`} />
+      </div>
+      {period !== "alles" && previousStats && previousBounds ? (
+        <Panel title={period === "vandaag" ? "Vs. gisteren" : period === "week" ? "Vs. vorige administratieve periode" : "Vs. vorige maand"}>
+          <div className="metric-grid compact">
+            <Metric label="Omzet" value={euro(filteredStats.omzet)} sub={`${euro(previousStats.omzet)} ${previousBounds.label}`} diff={diffLabel(filteredStats.omzet, previousStats.omzet)} />
+            <Metric label="Winst" value={euro(filteredStats.winst)} sub={`${euro(previousStats.winst)} ${previousBounds.label}`} diff={diffLabel(filteredStats.winst, previousStats.winst)} />
+            <Metric label="Stuks" value={String(filteredStats.stuks)} sub={`${previousStats.stuks} ${previousBounds.label}`} diff={diffLabel(filteredStats.stuks, previousStats.stuks, false)} />
+          </div>
+        </Panel>
+      ) : null}
+      <TrendChart data={data} />
+      <TopFlop data={data} period={period} />
       <Panel title="Prestaties per merk / smaak">
         <DataTable
           headers={["Merk", "Smaak", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
@@ -139,6 +291,86 @@ function Overview({ data, metrics }: { data: TrackerData; metrics: Record<string
         />
       </Panel>
     </section>
+  );
+}
+
+function TrendChart({ data }: { data: TrackerData }) {
+  const today = normalizeDate(new Date());
+  const days = Array.from({ length: 30 }, (_, index) => addDays(today, index - 29));
+  const values = days.map((day) => {
+    const next = addDays(day, 1);
+    const stats = saleStats(data, (sale) => saleInBounds(sale, { start: day, end: next }));
+    return { day, ...stats };
+  });
+  const max = Math.max(1, ...values.flatMap((value) => [value.omzet, value.winst]));
+
+  return (
+    <Panel title="Omzet & winst (laatste 30 dagen)">
+      {data.sales.length === 0 ? (
+        <p className="empty">Nog geen verkopen om te tonen.</p>
+      ) : (
+        <>
+          <div className="trend-legend">
+            <span><i className="legend-dot omzet" /> Omzet</span>
+            <span><i className="legend-dot winst" /> Winst</span>
+          </div>
+          <div className="trend-bars" aria-label="Omzet en winst laatste 30 dagen">
+            {values.map((value) => (
+              <div className="trend-day" key={value.day.toISOString()} title={`${dateKey(value.day)} omzet ${euro(value.omzet)} winst ${euro(value.winst)}`}>
+                <span className="bar omzet" style={{ height: `${Math.max(2, (value.omzet / max) * 100)}%` }} />
+                <span className="bar winst" style={{ height: `${Math.max(2, (Math.max(0, value.winst) / max) * 100)}%` }} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function TopFlop({ data, period }: { data: TrackerData; period: OverviewPeriod }) {
+  const groups = groupSalesForTopFlop(data, period);
+  if (groups.length < 2) return null;
+  const best = [...groups].sort((a, b) => b.omzet - a.omzet)[0];
+  const worst = [...groups].sort((a, b) => a.omzet - b.omzet)[0];
+  const title = period === "week" ? "Beste & slechtste dag deze periode" : period === "maand" ? "Beste & slechtste dag deze maand" : "Beste & slechtste dag all time";
+  return (
+    <section>
+      <p className="section-eyebrow">{title}</p>
+      <div className="topflop-grid">
+        <TopFlopCard title="Beste dag" item={best} tone="good" />
+        <TopFlopCard title="Slechtste dag" item={worst} tone="bad" />
+      </div>
+    </section>
+  );
+}
+
+function groupSalesForTopFlop(data: TrackerData, period: OverviewPeriod) {
+  const bounds = getPeriodBounds(period);
+  const map = new Map<string, { label: string; omzet: number; winst: number; stuks: number }>();
+  for (const sale of data.sales.filter((item) => saleInBounds(item, bounds))) {
+    const key = dateKey(new Date(sale.datum));
+    const current = map.get(key) || { label: key, omzet: 0, winst: 0, stuks: 0 };
+    current.omzet += sale.bedrag;
+    for (const item of sale.items) {
+      const variant = data.variants.find((v) => v.id === item.variantId);
+      current.stuks += item.aantal;
+      current.winst += item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
+    }
+    map.set(key, current);
+  }
+  return [...map.values()];
+}
+
+function TopFlopCard({ title, item, tone }: { title: string; item: { label: string; omzet: number; winst: number; stuks: number }; tone: "good" | "bad" }) {
+  return (
+    <article className={`topflop-card ${tone}`}>
+      <h3>{title}</h3>
+      <strong>{item.label}</strong>
+      <span>Omzet {euro(item.omzet)}</span>
+      <span>Winst {euro(item.winst)}</span>
+      <span>Stuks {item.stuks}</span>
+    </article>
   );
 }
 
@@ -593,12 +825,13 @@ function SettingsView({ data }: { data: TrackerData }) {
   );
 }
 
-function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Metric({ label, value, sub, diff, tone }: { label: string; value: string; sub?: string; diff?: string; tone?: "good" | "bad" }) {
   return (
     <article className="metric">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong className={tone === "good" ? "green" : tone === "bad" ? "red" : ""}>{value}</strong>
       {sub ? <small>{sub}</small> : null}
+      {diff ? <small className={diff.startsWith("▲") ? "green" : diff.startsWith("▼") ? "red" : "muted"}>{diff}</small> : null}
     </article>
   );
 }

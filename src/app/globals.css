@@ -112,6 +112,19 @@ button:hover { border-color: var(--accent); }
 h1 { font-size: clamp(1.8rem, 3vw, 2.4rem); margin: 1rem 0; }
 h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 1rem; }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.section-header h1 {
+  margin: 0;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -135,6 +148,9 @@ h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color
 .metric span { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .metric strong { font-size: 1.6rem; }
 .metric small { color: var(--muted); }
+.metric-grid.compact .metric strong { font-size: 1.15rem; }
+.green { color: var(--accent); }
+.red { color: var(--danger); }
 
 .panel {
   padding: 1rem;
@@ -248,6 +264,96 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
+}
+
+.trend-legend {
+  display: flex;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.8rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  margin-right: 0.3rem;
+  vertical-align: -1px;
+}
+
+.legend-dot.omzet,
+.bar.omzet {
+  background: var(--accent-2);
+}
+
+.legend-dot.winst,
+.bar.winst {
+  background: var(--accent);
+}
+
+.trend-bars {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(8px, 1fr));
+  gap: 4px;
+  height: 180px;
+  align-items: end;
+}
+
+.trend-day {
+  height: 100%;
+  display: flex;
+  gap: 2px;
+  align-items: end;
+}
+
+.bar {
+  display: block;
+  width: 50%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+}
+
+.section-eyebrow {
+  margin: 1rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topflop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.topflop-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.topflop-card h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.topflop-card.good strong {
+  color: var(--accent);
+}
+
+.topflop-card.bad strong {
+  color: var(--danger);
 }
 
 @media (max-width: 760px) {
