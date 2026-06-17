@@ -2,7 +2,7 @@
 
 import { PaymentMethod, PriceKind, SaleKind } from "@prisma/client";
 import { signOut } from "next-auth/react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { TrackerData } from "@/lib/validators";
 import { euro } from "@/lib/money";
 import {
@@ -208,6 +208,25 @@ function purchaseFlavorOptions(data: TrackerData, merk: string) {
   const existing = data.variants.filter((variant) => !merk || variant.merk === merk).map((variant) => variant.smaak);
   const fixed = merk ? FIXED_FLAVORS[merk] || [] : Object.values(FIXED_FLAVORS).flat();
   return uniqueValues([...fixed, ...existing]);
+}
+
+function brandClass(merk: string) {
+  const normalized = merk.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return ["pablo", "killa", "cuba", "fox", "iceberg", "velo"].includes(normalized) ? normalized : "default";
+}
+
+function stockStatus(voorraad: number) {
+  if (voorraad === 0) return { label: "leeg", className: "empty" };
+  if (voorraad < 5) return { label: "laag", className: "low" };
+  return { label: "ok", className: "ok" };
+}
+
+function stockRolls(voorraad: number) {
+  const rollen = Math.floor(voorraad / BAKJES_PER_ROL);
+  const los = voorraad % BAKJES_PER_ROL;
+  if (rollen > 0 && los > 0) return `${rollen} rol${rollen > 1 ? "len" : ""} + ${los} los`;
+  if (rollen > 0) return `${rollen} rol${rollen > 1 ? "len" : ""}`;
+  return `${los} los`;
 }
 
 function firstVariantId(data: TrackerData) {
@@ -904,25 +923,74 @@ function SalesHistory({ data }: { data: TrackerData }) {
 }
 
 function StockView({ data }: { data: TrackerData }) {
+  const grouped = data.variants.reduce<Map<string, TrackerData["variants"]>>((map, variant) => {
+    map.set(variant.merk, [...(map.get(variant.merk) || []), variant]);
+    return map;
+  }, new Map());
+  const totalStock = data.variants.reduce((sum, variant) => sum + variant.voorraad, 0);
+  const stockValue = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
+  const lowCount = data.variants.filter((variant) => variant.voorraad > 0 && variant.voorraad < 5).length;
+  const emptyCount = data.variants.filter((variant) => variant.voorraad === 0).length;
+
   return (
     <section>
       <h1>Voorraad</h1>
-      <Panel title="Voorraad per variant">
-        <DataTable
-          headers={["Merk", "Smaak", "Voorraad", "In rollen", "Waarde", "Status"]}
-          rows={data.variants.map((variant) => {
-            const rollen = Math.floor(variant.voorraad / 10);
-            const los = variant.voorraad % 10;
-            return [
-              variant.merk,
-              variant.smaak,
-              String(variant.voorraad),
-              rollen > 0 ? `${rollen} rol${rollen > 1 ? "len" : ""}${los ? ` + ${los} los` : ""}` : `${los} los`,
-              euro(variant.voorraad * variant.inkoopPrijs),
-              variant.voorraad === 0 ? "Leeg" : variant.voorraad < 5 ? "Laag" : "Ok"
-            ];
-          })}
-        />
+      <div className="metric-grid compact">
+        <Metric label="Voorraad totaal" value={`${totalStock} stuks`} />
+        <Metric label="In rollen" value={stockRolls(totalStock)} />
+        <Metric label="Voorraadwaarde" value={euro(stockValue)} />
+        <Metric label="Lage voorraad" value={`${lowCount} smaken`} tone={lowCount ? "bad" : "good"} />
+        <Metric label="Leeg" value={`${emptyCount} smaken`} tone={emptyCount ? "bad" : "good"} />
+      </div>
+      <Panel title="Voorraad per smaak">
+        {data.variants.length === 0 ? (
+          <p className="empty">Nog geen varianten.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Merk / smaak</th>
+                  <th>Stuks</th>
+                  <th>In rollen</th>
+                  <th>Status</th>
+                  <th>Voorraadwaarde</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...grouped.entries()].map(([merk, variants]) => {
+                  const merkTotal = variants.reduce((sum, variant) => sum + variant.voorraad, 0);
+                  const merkValue = variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
+                  const className = brandClass(merk);
+                  return (
+                    <Fragment key={merk}>
+                      <tr className={`stock-group stock-${className}`}>
+                        <td>
+                          <span className={`brand-badge brand-${className}`}>{merk}</span>
+                        </td>
+                        <td colSpan={4}>
+                          Totaal: {merkTotal} stuks - {stockRolls(merkTotal)} - {euro(merkValue)}
+                        </td>
+                      </tr>
+                      {variants.map((variant) => {
+                        const status = stockStatus(variant.voorraad);
+                        return (
+                          <tr key={variant.id}>
+                            <td className="stock-flavor">{variant.smaak}</td>
+                            <td>{variant.voorraad} stuks</td>
+                            <td>{stockRolls(variant.voorraad)}</td>
+                            <td><span className={`stock-badge ${status.className}`}>{status.label}</span></td>
+                            <td>{euro(variant.voorraad * variant.inkoopPrijs)}</td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
     </section>
   );
