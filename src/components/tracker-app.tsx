@@ -67,7 +67,7 @@ const FIXED_FLAVORS: Record<string, string[]> = {
   Killa: ["Cold Mint", "Watermeloen", "Mango Ice", "Cola", "Appel", "13", "Pineapple", "Blueberry", "Strawberry Watermeloen", "Grape Ice", "Bubblegum"],
   Cuba: ["Peach", "Cherry", "Watermeloen", "Blueberry", "Banana Mint", "Apple Juice"],
   Fox: ["White Fox Slim Mint", "White Fox Slim Double Mint"],
-  Iceberg: ["Araska", "Melon Peach", "Black", "Energy"],
+  Iceberg: ["Araska", "Melon Peach", "Black", "Energy", "Cherry"],
   Velo: []
 };
 const FIXED_CUSTOMER_PRICES: Record<number, number> = {
