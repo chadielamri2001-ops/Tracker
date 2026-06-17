@@ -1,0 +1,11 @@
+.env
+.env*.local
+node_modules
+.next
+out
+coverage
+*.log
+backups/
+legacy-export*.json
+dist
+tsconfig.tsbuildinfo
