@@ -26,7 +26,7 @@ type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { merk: string; smaak: string; rollen: number; prijsPerRol: string };
 
-const DELIVERY_PRICE = 2.5;
+const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
 const ADMIN_ANCHOR = new Date(2026, 3, 17);
 const DAY_MS = 24 * 60 * 60 * 1000;
