@@ -391,6 +391,18 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   color: var(--danger);
 }
 
+.countdown {
+  display: inline-block;
+  min-width: 70px;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.countdown.urgent {
+  color: var(--danger);
+}
+
 .field-label {
   color: var(--muted);
   font-size: 0.9rem;

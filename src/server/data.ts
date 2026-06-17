@@ -5,6 +5,7 @@ import { trackerDataSchema } from "@/lib/validators";
 
 export async function getTrackerData() {
   await requireUser();
+  await prisma.concept.deleteMany({ where: { expiresAt: { lte: new Date() } } });
 
   const [variants, purchases, sales, debts, concepts, prices] = await Promise.all([
     prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] }),

@@ -134,6 +134,25 @@ async function createSaleFromInput(
   return sale;
 }
 
+async function reverseAndDeleteSale(tx: Prisma.TransactionClient, id: string) {
+  const sale = await tx.sale.findUnique({ where: { id }, include: { items: true, debt: true } });
+  if (!sale) throw new Error("Verkoop bestaat niet.");
+
+  for (const item of sale.items) {
+    await tx.variant.update({
+      where: { id: item.variantId },
+      data: {
+        voorraad: { increment: item.aantal },
+        totaalVerkocht: { decrement: item.aantal },
+        totaalOmzet: { decrement: item.bedrag }
+      }
+    });
+  }
+
+  if (sale.debt) await tx.debt.delete({ where: { id: sale.debt.id } });
+  await tx.sale.delete({ where: { id } });
+}
+
 function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
   const items = formItemsSchema.parse(String(formData.get("items") || "[]"));
   return multiSaleInputSchema.parse({
@@ -274,6 +293,10 @@ export async function confirmConcept(formData: FormData) {
   await prisma.$transaction(async (tx) => {
     const concept = await tx.concept.findUnique({ where: { id } });
     if (!concept) throw new Error("Concept bestaat niet.");
+    if (concept.expiresAt <= new Date()) {
+      await tx.concept.delete({ where: { id } });
+      throw new Error("Concept is verlopen.");
+    }
     const items = z
       .array(z.object({ variantId: z.string().cuid(), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() }))
       .parse(concept.items)
@@ -306,20 +329,22 @@ export async function deleteSale(formData: FormData) {
   const { id } = idSchema.parse(Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
-    const sale = await tx.sale.findUnique({ where: { id }, include: { items: true, debt: true } });
-    if (!sale) throw new Error("Verkoop bestaat niet.");
-    for (const item of sale.items) {
-      await tx.variant.update({
-        where: { id: item.variantId },
-        data: {
-          voorraad: { increment: item.aantal },
-          totaalVerkocht: { decrement: item.aantal },
-          totaalOmzet: { decrement: item.bedrag }
-        }
-      });
-    }
-    if (sale.debt) await tx.debt.delete({ where: { id: sale.debt.id } });
-    await tx.sale.delete({ where: { id } });
+    await reverseAndDeleteSale(tx, id);
+  });
+
+  revalidatePath("/");
+}
+
+export async function updateSale(formData: FormData) {
+  await guardWrite("write:sale-update");
+  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const input = parseMultiSaleForm(formData, SaleKind.MULTI);
+
+  if (input.concept) throw new Error("Een bestaande verkoop kan niet als concept worden opgeslagen.");
+
+  await prisma.$transaction(async (tx) => {
+    await reverseAndDeleteSale(tx, id);
+    await createSaleFromInput(tx, input);
   });
 
   revalidatePath("/");

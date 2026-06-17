@@ -16,7 +16,8 @@ import {
   deleteSale,
   markAllDebtsPaid,
   markDebtPaid,
-  savePrices
+  savePrices,
+  updateSale
 } from "@/server/actions";
 
 type Tab = "overzicht" | "inkoop" | "verkoop" | "voorraad" | "statistieken" | "poflijst" | "instellingen";
@@ -27,6 +28,7 @@ type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { merk: string; smaak: string; rollen: number; prijsPerRol: string };
+type SaleRecord = TrackerData["sales"][number];
 
 const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
@@ -324,6 +326,14 @@ function initialTheme(): ThemeMode {
   const saved = window.localStorage.getItem("snus_theme");
   if (saved === "dark" || saved === "light") return saved;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function saleBaseAmount(sale: SaleRecord) {
+  return sale.basisBedrag ?? sale.bedrag - (sale.bezorgkosten ?? 0);
+}
+
+function saleItemsAsDraft(sale: SaleRecord) {
+  return sale.items.map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
 }
 
 export function TrackerApp({ data, userEmail }: { data: TrackerData; userEmail: string }) {
@@ -675,9 +685,12 @@ function SalesView({ data }: { data: TrackerData }) {
   const [priceMode, setPriceMode] = useState<PriceMode>("standaard");
   const [delivery, setDelivery] = useState(false);
   const [customPrice, setCustomPrice] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [rolAantal, setRolAantal] = useState(1);
   const [normalItem, setNormalItem] = useState<DraftItem>({ variantId: firstVariantId(data), aantal: 1 });
   const [items, setItems] = useState<DraftItem[]>([{ variantId: firstVariantId(data), aantal: 1 }]);
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const editingSale = editingSaleId ? data.sales.find((sale) => sale.id === editingSaleId) : null;
 
   const targetQty = mode === "mix" ? 10 * rolAantal : saleQty;
   const activeItems = mode === "normal" ? [{ ...normalItem, aantal: 1 }] : items.filter((item) => item.variantId && item.aantal > 0);
@@ -705,6 +718,8 @@ function SalesView({ data }: { data: TrackerData }) {
     setPriceMode("standaard");
     setDelivery(false);
     setCustomPrice("");
+    setCustomerName("");
+    setEditingSaleId(null);
     setRolAantal(1);
     if (nextMode === "normal") {
       setNormalItem((current) => ({ variantId: current.variantId || firstVariantId(data), aantal: 1 }));
@@ -712,6 +727,54 @@ function SalesView({ data }: { data: TrackerData }) {
       setItems([{ variantId: firstVariantId(data), aantal: 1 }]);
     }
   }
+
+  function resetSaleForm() {
+    setEditingSaleId(null);
+    setMode("normal");
+    setSaleQty(1);
+    setPayment(PaymentMethod.CASH);
+    setPriceMode("standaard");
+    setDelivery(false);
+    setCustomPrice("");
+    setCustomerName("");
+    setRolAantal(1);
+    setNormalItem({ variantId: firstVariantId(data), aantal: 1 });
+    setItems([{ variantId: firstVariantId(data), aantal: 1 }]);
+  }
+
+  function editSale(sale: SaleRecord) {
+    const draftItems = saleItemsAsDraft(sale);
+    const qty = draftItems.reduce((sum, item) => sum + item.aantal, 0);
+    const baseAmount = saleBaseAmount(sale);
+    const nextMode: SaleMode = sale.kind === SaleKind.MIX ? "mix" : sale.kind === SaleKind.MULTI || draftItems.length > 1 || qty > 1 ? "multi" : "normal";
+    const standardPrice = nextMode === "mix" ? mixPrice(data) * (sale.rolAantal ?? Math.max(1, Math.round(qty / BAKJES_PER_ROL))) : priceFor(data, qty);
+    const fixedPrice = FIXED_CUSTOMER_PRICES[qty] ?? qty * 5;
+
+    setEditingSaleId(sale.id);
+    setMode(nextMode);
+    setSaleQty(nextMode === "normal" ? 1 : qty);
+    setRolAantal(sale.rolAantal ?? Math.max(1, Math.round(qty / BAKJES_PER_ROL)));
+    setPayment(sale.betaalwijze);
+    setDelivery((sale.bezorgkosten ?? 0) > 0);
+    setCustomerName(sale.klantNaam ?? "");
+    setNormalItem(draftItems[0] ? { ...draftItems[0], aantal: 1 } : { variantId: firstVariantId(data), aantal: 1 });
+    setItems(draftItems.length ? draftItems : [{ variantId: firstVariantId(data), aantal: 1 }]);
+
+    if (Math.abs(baseAmount - standardPrice) < 0.01) {
+      setPriceMode("standaard");
+      setCustomPrice("");
+    } else if (nextMode !== "mix" && Math.abs(baseAmount - fixedPrice) < 0.01) {
+      setPriceMode("vasteKlant");
+      setCustomPrice("");
+    } else {
+      setPriceMode("aangepast");
+      setCustomPrice(baseAmount.toFixed(2));
+    }
+  }
+
+  useEffect(() => {
+    if (editingSaleId && !editingSale) resetSaleForm();
+  }, [editingSaleId, editingSale]);
 
   return (
     <section>
@@ -738,8 +801,9 @@ function SalesView({ data }: { data: TrackerData }) {
           </button>
         </div>
       </Panel>
-      <Panel title="Verkoop registreren">
-        <form action={addMultiSale} className="stack">
+      <Panel title={editingSale ? "Verkoop bewerken" : "Verkoop registreren"}>
+        <form action={editingSale ? updateSale : addMultiSale} className="stack">
+          {editingSale ? <input type="hidden" name="id" value={editingSale.id} /> : null}
           <input type="hidden" name="kind" value={saleKind} />
           <input type="hidden" name="items" value={JSON.stringify(activeItems)} />
           <input type="hidden" name="bedrag" value={total.toFixed(2)} />
@@ -816,13 +880,13 @@ function SalesView({ data }: { data: TrackerData }) {
             {payment === PaymentMethod.POF ? (
               <label>
                 Naam klant
-                <input name="klantNaam" required maxLength={120} />
+                <input name="klantNaam" required maxLength={120} value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
               </label>
             ) : null}
           </div>
 
           <div className="summary-row">
-            <span>{kindLabel(saleKind)}</span>
+            <span>{editingSale ? "Bewerken" : kindLabel(saleKind)}</span>
             <strong>{totalQty} / {targetQty} stuks</strong>
             <strong>Totaal: {euro(total)}</strong>
             {!hasExactQty ? <span className="danger-text">Aantal klopt nog niet</span> : null}
@@ -830,17 +894,21 @@ function SalesView({ data }: { data: TrackerData }) {
 
           <div className="button-row">
             <button className="primary" type="submit" disabled={!canSubmit}>
-              Verkoop opslaan
+              {editingSale ? "Wijziging opslaan" : "Verkoop opslaan"}
             </button>
-            <button name="concept" value="true" type="submit" disabled={!canSubmit}>
-              Concept opslaan
-            </button>
+            {editingSale ? (
+              <button type="button" onClick={resetSaleForm}>Annuleer bewerken</button>
+            ) : (
+              <button name="concept" value="true" type="submit" disabled={!canSubmit}>
+                Concept opslaan
+              </button>
+            )}
           </div>
         </form>
       </Panel>
 
       <ConceptsView data={data} />
-      <SalesHistory data={data} />
+      <SalesHistory data={data} onEdit={editSale} />
     </section>
   );
 }
@@ -907,7 +975,16 @@ function SaleItemEditor({
 }
 
 function ConceptsView({ data }: { data: TrackerData }) {
-  if (data.concepts.length === 0) return null;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const activeConcepts = data.concepts.filter((concept) => new Date(concept.expiresAt).getTime() > now);
+  if (activeConcepts.length === 0) return null;
+
   return (
     <Panel title="Conceptbestellingen">
       <div className="table-wrap">
@@ -918,28 +995,35 @@ function ConceptsView({ data }: { data: TrackerData }) {
               <th>Bestelling</th>
               <th>Betaling</th>
               <th>Bedrag</th>
+              <th>Vervalt</th>
               <th>Actie</th>
             </tr>
           </thead>
           <tbody>
-            {data.concepts.map((concept) => (
-              <tr key={concept.id}>
-                <td>{dateNl(concept.createdAt)}</td>
-                <td>{concept.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
-                <td>{paymentLabel(concept.betaalwijze)}{concept.klantNaam ? ` - ${concept.klantNaam}` : ""}</td>
-                <td>{euro(concept.bedrag)}</td>
-                <td className="button-row">
-                  <form action={confirmConcept}>
-                    <input name="id" type="hidden" value={concept.id} />
-                    <button className="primary" type="submit">Bevestig</button>
-                  </form>
-                  <form action={deleteConcept}>
-                    <input name="id" type="hidden" value={concept.id} />
-                    <button className="danger" type="submit">Annuleer</button>
-                  </form>
-                </td>
-              </tr>
-            ))}
+            {activeConcepts.map((concept) => {
+              const remainingMs = Math.max(0, new Date(concept.expiresAt).getTime() - now);
+              const minutes = Math.floor(remainingMs / 60_000);
+              const seconds = Math.floor((remainingMs % 60_000) / 1000);
+              return (
+                <tr key={concept.id}>
+                  <td>{dateNl(concept.createdAt)}</td>
+                  <td>{concept.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td>{paymentLabel(concept.betaalwijze)}{concept.klantNaam ? ` - ${concept.klantNaam}` : ""}</td>
+                  <td>{euro(concept.bedrag)}</td>
+                  <td><span className={`countdown${minutes < 10 ? " urgent" : ""}`}>{minutes}m {seconds.toString().padStart(2, "0")}s</span></td>
+                  <td className="button-row">
+                    <form action={confirmConcept}>
+                      <input name="id" type="hidden" value={concept.id} />
+                      <button className="primary" type="submit">Bevestig</button>
+                    </form>
+                    <form action={deleteConcept}>
+                      <input name="id" type="hidden" value={concept.id} />
+                      <button className="danger" type="submit">Annuleer</button>
+                    </form>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -947,40 +1031,46 @@ function ConceptsView({ data }: { data: TrackerData }) {
   );
 }
 
-function SalesHistory({ data }: { data: TrackerData }) {
+function SalesHistory({ data, onEdit }: { data: TrackerData; onEdit: (sale: SaleRecord) => void }) {
+  const visibleSales = data.sales.filter((sale) => sale.betaalwijze !== PaymentMethod.POF);
   return (
     <Panel title="Verkoophistorie">
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Datum</th>
-              <th>Type</th>
-              <th>Omschrijving</th>
-              <th>Betaald via</th>
-              <th>Bedrag</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {data.sales.map((sale) => (
-              <tr key={sale.id}>
-                <td>{dateNl(sale.datum)}</td>
-                <td>{kindLabel(sale.kind)}</td>
-                <td>{sale.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
-                <td>{paymentLabel(sale.betaalwijze)}{sale.klantNaam ? ` - ${sale.klantNaam}` : ""}</td>
-                <td>{euro(sale.bedrag)}</td>
-                <td>
-                  <form action={deleteSale}>
-                    <input name="id" type="hidden" value={sale.id} />
-                    <button className="danger" type="submit">Verwijder</button>
-                  </form>
-                </td>
+      {visibleSales.length === 0 ? (
+        <p className="empty">Nog geen verkopen.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Datum</th>
+                <th>Type</th>
+                <th>Omschrijving</th>
+                <th>Betaald via</th>
+                <th>Bedrag</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {visibleSales.map((sale) => (
+                <tr key={sale.id}>
+                  <td>{dateNl(sale.datum)}</td>
+                  <td>{kindLabel(sale.kind)}</td>
+                  <td>{sale.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td>{paymentLabel(sale.betaalwijze)}</td>
+                  <td>{euro(sale.bedrag)}</td>
+                  <td className="button-row">
+                    <button type="button" onClick={() => onEdit(sale)}>Bewerk</button>
+                    <form action={deleteSale}>
+                      <input name="id" type="hidden" value={sale.id} />
+                      <button className="danger" type="submit">Verwijder</button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Panel>
   );
 }
