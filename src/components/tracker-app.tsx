@@ -278,6 +278,12 @@ function paymentButtonClass(current: PaymentMethod, value: PaymentMethod) {
   return current === value ? `pay-btn selected-${suffix}` : "pay-btn";
 }
 
+function debtDescription(debt: TrackerData["debts"][number]) {
+  if (!debt.sale) return "Handmatig toegevoegd";
+  const items = debt.sale.items.map((item) => `${item.merk} ${item.smaak} (${item.aantal}x)`).join(", ");
+  return debt.sale.kind === SaleKind.MIX ? `Mix rol: ${items}` : items;
+}
+
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
   return data.sales.filter((sale) => (predicate ? predicate(sale) : true)).reduce(
     (stats, sale) => {
@@ -1175,19 +1181,29 @@ function StatsView({ data }: { data: TrackerData }) {
 function DebtView({ data }: { data: TrackerData }) {
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const total = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
+  const knownNames = uniqueValues([
+    ...data.debts.map((debt) => debt.naam),
+    ...data.sales.map((sale) => sale.klantNaam || "")
+  ]);
   const grouped = openDebts.reduce<Map<string, typeof openDebts>>((map, debt) => {
     map.set(debt.naam, [...(map.get(debt.naam) || []), debt]);
     return map;
   }, new Map());
+  const groupedEntries = [...grouped.entries()].sort(
+    (a, b) => b[1].reduce((sum, debt) => sum + debt.bedrag, 0) - a[1].reduce((sum, debt) => sum + debt.bedrag, 0)
+  );
 
   return (
     <section>
       <h1>Poflijst</h1>
-      <Panel title="Pof toevoegen">
+      <Panel title="Pof toevoegen / aanpassen">
         <form action={addDebt} className="form-grid">
           <label>
             Naam
-            <input name="naam" required maxLength={120} />
+            <input name="naam" list="pof-namen-list" placeholder="bijv. Ahmed" required maxLength={120} />
+            <datalist id="pof-namen-list">
+              {knownNames.map((name) => <option key={name} value={name} />)}
+            </datalist>
           </label>
           <label>
             Bedrag
@@ -1196,41 +1212,72 @@ function DebtView({ data }: { data: TrackerData }) {
           <button className="primary" type="submit">Toevoegen</button>
         </form>
       </Panel>
-      <div className="metric-grid">
-        <Metric label="Openstaand" value={euro(total)} />
+      {openDebts.length ? (
+        <div className="pof-banner">
+          <span>Totaal openstaand</span>
+          <strong>{euro(total)}</strong>
+        </div>
+      ) : null}
+      <div className="metric-grid compact">
+        <Metric label="Openstaand" value={euro(total)} tone={total > 0 ? "bad" : "good"} />
         <Metric label="Personen" value={String(grouped.size)} />
+        <Metric label="Open posten" value={String(openDebts.length)} />
+        <Metric label="Gemiddeld p.p." value={grouped.size ? euro(total / grouped.size) : euro(0)} />
       </div>
-      <Panel title="Openstaand per persoon">
-        <div className="debt-list">
-          {[...grouped.entries()].map(([naam, debts]) => (
-            <article className="debt-card" key={naam}>
-              <div className="summary-row">
-                <strong>{naam}</strong>
-                <strong>{euro(debts.reduce((sum, debt) => sum + debt.bedrag, 0))}</strong>
-                <form action={markAllDebtsPaid}>
-                  <input name="naam" type="hidden" value={naam} />
-                  <button type="submit">Alles betaald</button>
-                </form>
-              </div>
-              {debts.map((debt) => (
-                <div className="debt-row" key={debt.id}>
-                  <span>{dateNl(debt.datum)}</span>
-                  <strong>{euro(debt.bedrag)}</strong>
-                  <form action={markDebtPaid}>
-                    <input type="hidden" name="id" value={debt.id} />
-                    <button type="submit">Betaald</button>
-                  </form>
-                  <form action={deleteDebt}>
-                    <input type="hidden" name="id" value={debt.id} />
-                    <button className="danger" type="submit">Verwijder</button>
+      <div className="debt-list">
+        {groupedEntries.map(([naam, debts]) => {
+          const personTotal = debts.reduce((sum, debt) => sum + debt.bedrag, 0);
+          return (
+            <article className="debt-card pof-person-card" key={naam}>
+              <div className="pof-person-header">
+                <div>
+                  <strong>{naam}</strong>
+                  <span>{debts.length} bestelling{debts.length > 1 ? "en" : ""} openstaand</span>
+                </div>
+                <div className="pof-person-actions">
+                  <strong>{euro(personTotal)}</strong>
+                  <form action={markAllDebtsPaid}>
+                    <input name="naam" type="hidden" value={naam} />
+                    <button className="primary" type="submit">Alles betaald</button>
                   </form>
                 </div>
-              ))}
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Datum</th>
+                      <th>Omschrijving</th>
+                      <th>Bedrag</th>
+                      <th>Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debts.map((debt) => (
+                      <tr key={debt.id}>
+                        <td>{dateNl(debt.datum)}</td>
+                        <td>{debtDescription(debt)}</td>
+                        <td><strong>{euro(debt.bedrag)}</strong></td>
+                        <td className="button-row">
+                          <form action={markDebtPaid}>
+                            <input type="hidden" name="id" value={debt.id} />
+                            <button type="submit">Betaald</button>
+                          </form>
+                          <form action={deleteDebt}>
+                            <input type="hidden" name="id" value={debt.id} />
+                            <button className="danger" type="submit">Verwijder</button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </article>
-          ))}
-          {openDebts.length === 0 ? <p className="empty">Niemand staat op de pof.</p> : null}
-        </div>
-      </Panel>
+          );
+        })}
+        {openDebts.length === 0 ? <p className="empty">Niemand staat nog op de pof.</p> : null}
+      </div>
     </section>
   );
 }

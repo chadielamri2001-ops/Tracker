@@ -509,6 +509,52 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   background: var(--surface);
 }
 
+.pof-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #f0c040;
+  border-radius: 14px;
+  background: #fff4e5;
+  color: #7a3d00;
+}
+
+.pof-banner span {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.pof-banner strong {
+  font-size: 1.35rem;
+}
+
+.pof-person-card {
+  border-left: 3px solid #f0c040;
+}
+
+.pof-person-header,
+.pof-person-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.pof-person-header span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+.pof-person-actions strong {
+  font-size: 1.15rem;
+}
+
 .trend-legend {
   display: flex;
   gap: 1rem;

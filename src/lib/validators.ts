@@ -126,7 +126,19 @@ export const trackerDataSchema = z.object({
       naam: z.string(),
       bedrag: z.number(),
       betaald: z.boolean(),
-      datum: z.string()
+      datum: z.string(),
+      sale: z
+        .object({
+          kind: z.nativeEnum(SaleKind),
+          items: z.array(
+            z.object({
+              merk: z.string(),
+              smaak: z.string(),
+              aantal: z.number()
+            })
+          )
+        })
+        .nullable()
     })
   ),
   concepts: z.array(

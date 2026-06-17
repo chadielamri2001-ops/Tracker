@@ -14,7 +14,10 @@ export async function getTrackerData() {
       orderBy: { datum: "desc" },
       take: 300
     }),
-    prisma.debt.findMany({ orderBy: [{ betaald: "asc" }, { datum: "desc" }] }),
+    prisma.debt.findMany({
+      include: { sale: { include: { items: { include: { variant: true } } } } },
+      orderBy: [{ betaald: "asc" }, { datum: "desc" }]
+    }),
     prisma.concept.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] })
   ]);
@@ -63,7 +66,17 @@ export async function getTrackerData() {
       naam: debt.naam,
       bedrag: Number(debt.bedrag),
       betaald: debt.betaald,
-      datum: debt.datum.toISOString()
+      datum: debt.datum.toISOString(),
+      sale: debt.sale
+        ? {
+            kind: debt.sale.kind,
+            items: debt.sale.items.map((item) => ({
+              merk: item.variant.merk,
+              smaak: item.variant.smaak,
+              aantal: item.aantal
+            }))
+          }
+        : null
     })),
     concepts: concepts.map((concept) => {
       const items = concept.items as Array<{ variantId: string; merk: string; smaak: string; aantal: number }>;
