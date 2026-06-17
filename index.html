@@ -1289,6 +1289,18 @@ function changeRollen(i, d) {
   renderInkoopRijen();
 }
 
+function updateInkoopMerk(i, value) {
+  inkoopRijen[i].merk = value;
+  const smaakList = document.getElementById(`smaak-list-${i}`);
+  if (smaakList) {
+    const merkSmaken = (value && VASTE_SMAKEN[value]) ? VASTE_SMAKEN[value] : [];
+    const extraSmaken = [...new Set(Object.values(state.varianten).filter(v => v.merk === value).map(v => v.smaak))];
+    const alleSmaken = [...new Set([...merkSmaken, ...extraSmaken])];
+    smaakList.innerHTML = alleSmaken.map(s => `<option value="${s}">`).join('');
+  }
+  updateInkoopTotaalBar();
+}
+
 function updateInkoopPrijs(i, value) {
   inkoopRijen[i].prijsPerRol = value;
   const pprol = parseBedrag(value);
@@ -1337,17 +1349,17 @@ function renderInkoopRijen() {
       <div>
         ${badgeHtml}
         <input type="text" placeholder="Merk" value="${rij.merk}" list="merk-list"
-          oninput="inkoopRijen[${i}].merk=this.value;renderInkoopRijen()" style="margin-bottom:0" />
+          oninput="inkoopRijen[${i}].merk=this.value" onchange="updateInkoopMerk(${i}, this.value)" style="margin-bottom:0" />
       </div>
       <input type="text" placeholder="Smaak" value="${rij.smaak}" list="smaak-list-${i}"
-        oninput="inkoopRijen[${i}].smaak=this.value" style="margin-bottom:0" />
+        oninput="inkoopRijen[${i}].smaak=this.value" onchange="updateInkoopTotaalBar()" style="margin-bottom:0" />
       <div class="rollen-ctrl">
         <button onclick="changeRollen(${i},-1)">−</button>
         <span>${rij.rollen}</span>
         <button onclick="changeRollen(${i},1)">+</button>
       </div>
       <input type="text" inputmode="decimal" placeholder="0,00" value="${rij.prijsPerRol}"
-        oninput="updateInkoopPrijs(${i}, this.value)" style="margin-bottom:0" />
+        oninput="inkoopRijen[${i}].prijsPerRol=this.value" onchange="updateInkoopPrijs(${i}, this.value)" style="margin-bottom:0" />
       <div id="inkoop-ppb-${i}" class="ppb-chip" style="font-size:15px">${ppb ? '€' + formatBedrag(ppb) : '<span style=\'color:var(--text3)\'>—</span>'}</div>
       ${inkoopRijen.length > 1
         ? `<button onclick="removeInkoopRij(${i})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:18px;line-height:1">✕</button>`
