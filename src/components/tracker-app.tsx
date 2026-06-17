@@ -1283,24 +1283,43 @@ function DebtView({ data }: { data: TrackerData }) {
 }
 
 function SettingsView({ data }: { data: TrackerData }) {
+  const quantities = [1, 2, 3, 4, 5, 10];
   const price = (quantity: number) =>
-    data.prices.find((item) => item.kind === PriceKind.STANDARD && item.quantity === quantity)?.price ?? 0;
-  const mix = data.prices.find((item) => item.kind === PriceKind.MIX)?.price ?? 0;
+    data.prices.find((item) => item.kind === PriceKind.STANDARD && item.quantity === quantity)?.price ?? priceFor(data, quantity);
+  const mix = data.prices.find((item) => item.kind === PriceKind.MIX)?.price ?? mixPrice(data);
+  const labels: Record<number, string> = {
+    1: "1 bakje",
+    2: "2 bakjes",
+    3: "3 bakjes",
+    4: "4 bakjes",
+    5: "5 bakjes",
+    10: "Rol"
+  };
+
   return (
     <section>
       <h1>Instellingen</h1>
-      <Panel title="Prijzen">
-        <form action={savePrices} className="form-grid">
-          {[1, 2, 3, 4, 5, 10].map((quantity) => (
-            <label key={quantity}>
-              {quantity === 10 ? "Rol" : `${quantity} bakje${quantity > 1 ? "s" : ""}`}
-              <input name={`price-${quantity}`} inputMode="decimal" defaultValue={price(quantity).toFixed(2)} />
+      <Panel title="Verkoopprijzen aanpassen">
+        <form action={savePrices} className="stack">
+          <div className="settings-price-grid">
+            {quantities.map((quantity) => (
+              <label className="price-input-card" key={quantity}>
+                <span>{labels[quantity]}</span>
+                <strong>{euro(price(quantity))}</strong>
+                <input name={`price-${quantity}`} inputMode="decimal" defaultValue={price(quantity).toFixed(2)} required />
+              </label>
+            ))}
+            <label className="price-input-card mix">
+              <span>Mix rol</span>
+              <strong>{euro(mix)}</strong>
+              <input name="price-mix" inputMode="decimal" defaultValue={mix.toFixed(2)} required />
             </label>
-          ))}
-          <label>
-            Mix rol
-            <input name="price-mix" inputMode="decimal" defaultValue={mix.toFixed(2)} />
-          </label>
+          </div>
+          <div className="settings-summary">
+            <span>Standaard rol: {euro(price(10))}</span>
+            <span>Mix rol: {euro(mix)}</span>
+            <span>Vaste klant rol: {euro(FIXED_CUSTOMER_PRICES[10])}</span>
+          </div>
           <button className="primary" type="submit">Prijzen opslaan</button>
         </form>
       </Panel>

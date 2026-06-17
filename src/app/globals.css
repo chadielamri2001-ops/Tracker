@@ -555,6 +555,50 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
   font-size: 1.15rem;
 }
 
+.settings-price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.8rem;
+}
+
+.price-input-card {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.price-input-card.mix {
+  background: var(--accent-2);
+}
+
+.price-input-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.price-input-card strong {
+  font-size: 1.2rem;
+}
+
+.settings-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.settings-summary span {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .trend-legend {
   display: flex;
   gap: 1rem;
