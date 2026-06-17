@@ -9,3 +9,5 @@ backups/
 legacy-export*.json
 dist
 tsconfig.tsbuildinfo
+AGENTS.md
+CLAUDE.md

@@ -6,7 +6,7 @@ import { trackerDataSchema } from "@/lib/validators";
 export async function getTrackerData() {
   await requireUser();
 
-  const [variants, purchases, sales, debts, prices] = await Promise.all([
+  const [variants, purchases, sales, debts, concepts, prices] = await Promise.all([
     prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] }),
     prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 200 }),
     prisma.sale.findMany({
@@ -15,6 +15,7 @@ export async function getTrackerData() {
       take: 300
     }),
     prisma.debt.findMany({ orderBy: [{ betaald: "asc" }, { datum: "desc" }] }),
+    prisma.concept.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] })
   ]);
 
@@ -43,6 +44,10 @@ export async function getTrackerData() {
       datum: sale.datum.toISOString(),
       bedrag: Number(sale.bedrag),
       betaalwijze: sale.betaalwijze as PaymentMethod,
+      kind: sale.kind,
+      basisBedrag: sale.basisBedrag === null ? null : Number(sale.basisBedrag),
+      bezorgkosten: sale.bezorgkosten === null ? null : Number(sale.bezorgkosten),
+      rolAantal: sale.rolAantal,
       klantNaam: sale.klantNaam,
       items: sale.items.map((item) => ({
         id: item.id,
@@ -60,6 +65,22 @@ export async function getTrackerData() {
       betaald: debt.betaald,
       datum: debt.datum.toISOString()
     })),
+    concepts: concepts.map((concept) => {
+      const items = concept.items as Array<{ variantId: string; merk: string; smaak: string; aantal: number }>;
+      return {
+        id: concept.id,
+        kind: concept.kind,
+        items,
+        bedrag: Number(concept.bedrag),
+        basisBedrag: concept.basisBedrag === null ? null : Number(concept.basisBedrag),
+        bezorgkosten: concept.bezorgkosten === null ? null : Number(concept.bezorgkosten),
+        rolAantal: concept.rolAantal,
+        betaalwijze: concept.betaalwijze,
+        klantNaam: concept.klantNaam,
+        createdAt: concept.createdAt.toISOString(),
+        expiresAt: concept.expiresAt.toISOString()
+      };
+    }),
     prices: prices.map((price) => ({
       id: price.key,
       kind: price.kind,

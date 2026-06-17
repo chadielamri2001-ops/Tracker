@@ -1,4 +1,4 @@
-import { PaymentMethod, PriceKind } from "@prisma/client";
+import { PaymentMethod, PriceKind, SaleKind } from "@prisma/client";
 import { z } from "zod";
 import { parseMoneyInput } from "./money";
 
@@ -21,8 +21,27 @@ export const saleInputSchema = z.object({
   variantId: z.string().cuid(),
   aantal: z.coerce.number().int().min(1).max(1000),
   bedrag: money,
+  basisBedrag: z.preprocess((value) => (value ? parseMoneyInput(value) : undefined), z.number().finite().positive().max(100000).optional()),
+  bezorgkosten: z.preprocess((value) => (value ? parseMoneyInput(value) : 0), z.number().finite().min(0).max(1000).default(0)),
   betaalwijze: z.nativeEnum(PaymentMethod),
   klantNaam: optionalName
+});
+
+export const saleItemInputSchema = z.object({
+  variantId: z.string().cuid(),
+  aantal: z.coerce.number().int().min(1).max(1000)
+});
+
+export const multiSaleInputSchema = z.object({
+  kind: z.nativeEnum(SaleKind).default(SaleKind.MULTI),
+  items: z.array(saleItemInputSchema).min(1).max(25),
+  bedrag: money,
+  basisBedrag: z.preprocess((value) => (value ? parseMoneyInput(value) : undefined), z.number().finite().positive().max(100000).optional()),
+  bezorgkosten: z.preprocess((value) => (value ? parseMoneyInput(value) : 0), z.number().finite().min(0).max(1000).default(0)),
+  rolAantal: z.coerce.number().int().min(1).max(100).optional(),
+  betaalwijze: z.nativeEnum(PaymentMethod),
+  klantNaam: optionalName,
+  concept: z.preprocess((value) => value === "on" || value === "true", z.boolean().default(false))
 });
 
 export const debtInputSchema = z.object({
@@ -32,6 +51,10 @@ export const debtInputSchema = z.object({
 
 export const idSchema = z.object({
   id: z.string().cuid()
+});
+
+export const nameSchema = z.object({
+  naam: z.string().trim().min(1).max(120)
 });
 
 export const priceInputSchema = z.object({
@@ -74,6 +97,10 @@ export const trackerDataSchema = z.object({
       datum: z.string(),
       bedrag: z.number(),
       betaalwijze: z.nativeEnum(PaymentMethod),
+      kind: z.nativeEnum(SaleKind),
+      basisBedrag: z.number().nullable(),
+      bezorgkosten: z.number().nullable(),
+      rolAantal: z.number().nullable(),
       klantNaam: z.string().nullable(),
       items: z.array(
         z.object({
@@ -94,6 +121,28 @@ export const trackerDataSchema = z.object({
       bedrag: z.number(),
       betaald: z.boolean(),
       datum: z.string()
+    })
+  ),
+  concepts: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.nativeEnum(SaleKind),
+      items: z.array(
+        z.object({
+          variantId: z.string(),
+          merk: z.string(),
+          smaak: z.string(),
+          aantal: z.number()
+        })
+      ),
+      bedrag: z.number(),
+      basisBedrag: z.number().nullable(),
+      bezorgkosten: z.number().nullable(),
+      rolAantal: z.number().nullable(),
+      betaalwijze: z.nativeEnum(PaymentMethod),
+      klantNaam: z.string().nullable(),
+      createdAt: z.string(),
+      expiresAt: z.string()
     })
   ),
   prices: z.array(

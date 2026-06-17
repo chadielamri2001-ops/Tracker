@@ -187,9 +187,73 @@ th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-
 .stack { display: grid; gap: 1rem; }
 .eyebrow { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 
+.segmented, .button-row, .summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.inline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.sale-item-editor {
+  width: 100%;
+}
+
+.summary-row {
+  justify-content: space-between;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.checkbox {
+  display: flex;
+  grid-template-columns: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+.ok {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.danger-text {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.debt-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
 @media (max-width: 760px) {
   .topbar { align-items: flex-start; flex-direction: column; }
   .tabs { margin-left: 0; }
   .shell { padding: 1rem; }
   .debt-row { grid-template-columns: 1fr; }
+  .inline-grid { grid-template-columns: 1fr; }
 }
