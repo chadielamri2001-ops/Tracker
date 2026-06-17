@@ -125,6 +125,10 @@ h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color
   margin: 0;
 }
 
+.period-select {
+  width: min(260px, 100%);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

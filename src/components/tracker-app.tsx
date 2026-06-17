@@ -23,6 +23,7 @@ type Tab = "overzicht" | "inkoop" | "verkoop" | "voorraad" | "statistieken" | "p
 type SaleMode = "normal" | "multi" | "mix";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
+type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { merk: string; smaak: string; rollen: number; prijsPerRol: string };
 
@@ -227,6 +228,45 @@ function stockRolls(voorraad: number) {
   if (rollen > 0 && los > 0) return `${rollen} rol${rollen > 1 ? "len" : ""} + ${los} los`;
   if (rollen > 0) return `${rollen} rol${rollen > 1 ? "len" : ""}`;
   return `${los} los`;
+}
+
+function saleProfit(data: TrackerData, sale: TrackerData["sales"][number]) {
+  return sale.items.reduce((sum, item) => {
+    const variant = data.variants.find((v) => v.id === item.variantId);
+    return sum + item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
+  }, 0);
+}
+
+function firstSaleDate(data: TrackerData) {
+  const dates = data.sales.map((sale) => normalizeDate(new Date(sale.datum))).filter((date) => !Number.isNaN(date.getTime()));
+  return dates.length ? new Date(Math.min(...dates.map((date) => date.getTime()))) : null;
+}
+
+function statsPeriodLabel(period: StatsPeriod) {
+  if (period === "dag") return "dag";
+  if (period === "week") return "administratieve periode";
+  if (period === "maand") return "maand";
+  return "4-weken periode";
+}
+
+function statsPeriodKey(date: Date, period: StatsPeriod, firstSale: Date | null) {
+  if (period === "dag") return dateKey(date);
+  if (period === "maand") return date.toLocaleString("nl-NL", { month: "long", year: "numeric" });
+  if (period === "week") return getAdministrativePeriod(date)?.label || "Voor start administratie";
+  if (!firstSale) return dateKey(date);
+  const index = Math.floor(calendarDayDiff(date, firstSale) / 28);
+  const start = addDays(firstSale, index * 28);
+  const end = addDays(start, 27);
+  return `Periode ${index + 1}: ${adminDate(start)} t/m ${adminDate(end)}`;
+}
+
+function statsPeriodSort(date: Date, period: StatsPeriod, firstSale: Date | null) {
+  if (period === "dag") return normalizeDate(date).getTime();
+  if (period === "maand") return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+  if (period === "week") return getAdministrativePeriod(date)?.start.getTime() || 0;
+  if (!firstSale) return normalizeDate(date).getTime();
+  const index = Math.floor(calendarDayDiff(date, firstSale) / 28);
+  return addDays(firstSale, index * 28).getTime();
 }
 
 function firstVariantId(data: TrackerData) {
@@ -997,34 +1037,137 @@ function StockView({ data }: { data: TrackerData }) {
 }
 
 function StatsView({ data }: { data: TrackerData }) {
-  const byDay = [...data.sales].reduce<Map<string, { omzet: number; winst: number; stuks: number; transacties: number }>>((map, sale) => {
-    const key = dateNl(sale.datum);
-    const current = map.get(key) || { omzet: 0, winst: 0, stuks: 0, transacties: 0 };
-    current.omzet += sale.bedrag;
-    current.transacties += 1;
-    for (const item of sale.items) {
-      const variant = data.variants.find((v) => v.id === item.variantId);
-      current.stuks += item.aantal;
-      current.winst += item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
+  const [period, setPeriod] = useState<StatsPeriod>("week");
+  const [selectedPeriod, setSelectedPeriod] = useState("");
+  const firstSale = useMemo(() => firstSaleDate(data), [data]);
+  const groups = useMemo(() => {
+    const map = new Map<string, { label: string; sort: number; omzet: number; winst: number; stuks: number; transacties: number }>();
+    for (const sale of data.sales) {
+      const date = normalizeDate(new Date(sale.datum));
+      const key = statsPeriodKey(date, period, firstSale);
+      const current = map.get(key) || { label: key, sort: statsPeriodSort(date, period, firstSale), omzet: 0, winst: 0, stuks: 0, transacties: 0 };
+      current.omzet += sale.bedrag;
+      current.transacties += 1;
+      current.stuks += sale.items.reduce((sum, item) => sum + item.aantal, 0);
+      current.winst += saleProfit(data, sale);
+      map.set(key, current);
     }
-    map.set(key, current);
+    return [...map.values()].sort((a, b) => b.sort - a.sort);
+  }, [data, firstSale, period]);
+  const shownGroups = selectedPeriod ? groups.filter((group) => group.label === selectedPeriod) : groups;
+  const activeStats = selectedPeriod
+    ? groups.find((group) => group.label === selectedPeriod) || { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
+    : groups[0] || { omzet: 0, winst: 0, stuks: 0, transacties: 0 };
+  const margin = activeStats.omzet > 0 ? (activeStats.winst / activeStats.omzet) * 100 : 0;
+  const byDay = useMemo(() => {
+    const map = new Map<string, { omzet: number; winst: number; stuks: number; transacties: number; sort: number }>();
+    for (const sale of data.sales) {
+      const date = normalizeDate(new Date(sale.datum));
+      const key = dateKey(date);
+      const current = map.get(key) || { omzet: 0, winst: 0, stuks: 0, transacties: 0, sort: date.getTime() };
+      current.omzet += sale.bedrag;
+      current.winst += saleProfit(data, sale);
+      current.stuks += sale.items.reduce((sum, item) => sum + item.aantal, 0);
+      current.transacties += 1;
+      map.set(key, current);
+    }
+    return [...map.entries()].sort((a, b) => b[1].omzet - a[1].omzet).slice(0, 7);
+  }, [data]);
+  const paymentStats = useMemo(() => {
+    const map = new Map<PaymentMethod, { omzet: number; count: number }>([
+      [PaymentMethod.CASH, { omzet: 0, count: 0 }],
+      [PaymentMethod.TIKKIE, { omzet: 0, count: 0 }],
+      [PaymentMethod.POF, { omzet: 0, count: 0 }]
+    ]);
+    for (const sale of data.sales) {
+      const current = map.get(sale.betaalwijze) || { omzet: 0, count: 0 };
+      current.omzet += sale.bedrag;
+      current.count += 1;
+      map.set(sale.betaalwijze, current);
+    }
     return map;
-  }, new Map());
-
-  const rows = [...byDay.entries()]
-    .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
-    .map(([day, stat]) => [day, String(stat.transacties), String(stat.stuks), euro(stat.omzet), euro(stat.winst)]);
-  const best = [...byDay.entries()].sort((a, b) => b[1].omzet - a[1].omzet).slice(0, 5);
+  }, [data.sales]);
+  const totalPayment = [...paymentStats.values()].reduce((sum, item) => sum + item.omzet, 0);
 
   return (
     <section>
       <h1>Statistieken</h1>
-      <Panel title="Overzicht per dag">
-        <DataTable headers={["Dag", "Transacties", "Stuks", "Omzet", "Winst"]} rows={rows} />
-      </Panel>
-      <Panel title="Beste verkoopdagen">
-        <DataTable headers={["Dag", "Omzet", "Winst", "Stuks"]} rows={best.map(([day, stat]) => [day, euro(stat.omzet), euro(stat.winst), String(stat.stuks)])} />
-      </Panel>
+      <div className="section-header">
+        <div className="segmented">
+          {([
+            ["dag", "Per dag"],
+            ["week", "Per week"],
+            ["maand", "Per maand"],
+            ["4weken", "Per 4 weken"]
+          ] as Array<[StatsPeriod, string]>).map(([value, label]) => (
+            <button
+              className={period === value ? "active" : ""}
+              key={value}
+              onClick={() => {
+                setPeriod(value);
+                setSelectedPeriod("");
+              }}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <select className="period-select" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>
+          <option value="">Alle periodes</option>
+          {groups.map((group) => (
+            <option key={group.label} value={group.label}>{group.label}</option>
+          ))}
+        </select>
+      </div>
+      {data.sales.length === 0 ? (
+        <Panel title="Overzicht">
+          <p className="empty">Nog geen verkopen om te analyseren.</p>
+        </Panel>
+      ) : (
+        <>
+          <div className="metric-grid">
+            <Metric label="Omzet" value={euro(activeStats.omzet)} />
+            <Metric label="Winst" value={euro(activeStats.winst)} tone={activeStats.winst >= 0 ? "good" : "bad"} />
+            <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
+            <Metric label="Bakjes verkocht" value={String(activeStats.stuks)} />
+            <Metric label="Transacties" value={String(activeStats.transacties)} />
+          </div>
+          <Panel title={`Overzicht per ${statsPeriodLabel(period)}`}>
+            <DataTable
+              headers={["Periode", "Transacties", "Stuks", "Omzet", "Winst", "Marge"]}
+              rows={shownGroups.map((group) => [
+                group.label,
+                String(group.transacties),
+                String(group.stuks),
+                euro(group.omzet),
+                euro(group.winst),
+                group.omzet > 0 ? `${((group.winst / group.omzet) * 100).toFixed(1)}%` : "0.0%"
+              ])}
+            />
+          </Panel>
+          <Panel title="Beste verkoopdagen">
+            <DataTable
+              headers={["Dag", "Omzet", "Winst", "Stuks", "Transacties"]}
+              rows={byDay.map(([day, stat]) => [day, euro(stat.omzet), euro(stat.winst), String(stat.stuks), String(stat.transacties)])}
+            />
+          </Panel>
+          <Panel title="Betaalmethodes">
+            <DataTable
+              headers={["Methode", "Transacties", "Omzet", "Aandeel"]}
+              rows={[PaymentMethod.CASH, PaymentMethod.TIKKIE, PaymentMethod.POF].map((method) => {
+                const stat = paymentStats.get(method) || { omzet: 0, count: 0 };
+                return [
+                  paymentLabel(method),
+                  `${stat.count} transacties`,
+                  euro(stat.omzet),
+                  totalPayment > 0 ? `${((stat.omzet / totalPayment) * 100).toFixed(1)}%` : "-"
+                ];
+              })}
+            />
+          </Panel>
+        </>
+      )}
     </section>
   );
 }
