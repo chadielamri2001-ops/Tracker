@@ -3,12 +3,11 @@ import { z } from "zod";
 import { parseMoneyInput } from "./money";
 
 const money = z.preprocess(parseMoneyInput, z.number().finite().positive().max(100000));
-const optionalName = z
-  .string()
-  .trim()
-  .max(120)
-  .optional()
-  .transform((value) => (value ? value : undefined));
+const optionalName = z.preprocess((value) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}, z.string().max(120).optional());
 const saleDate = z.preprocess((value) => {
   if (typeof value !== "string" || value.trim() === "") return undefined;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
@@ -58,7 +57,10 @@ export const multiSaleInputSchema = z.object({
   bedrag: money,
   basisBedrag: z.preprocess((value) => (value ? parseMoneyInput(value) : undefined), z.number().finite().positive().max(100000).optional()),
   bezorgkosten: z.preprocess((value) => (value ? parseMoneyInput(value) : 0), z.number().finite().min(0).max(1000).default(0)),
-  rolAantal: z.coerce.number().int().min(1).max(100).optional(),
+  rolAantal: z.preprocess(
+    (value) => (value === "" || value === null ? undefined : value),
+    z.coerce.number().int().min(1).max(100).optional()
+  ),
   betaalwijze: z.nativeEnum(PaymentMethod),
   klantNaam: optionalName,
   datum: saleDate,

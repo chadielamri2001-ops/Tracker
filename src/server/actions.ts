@@ -20,6 +20,17 @@ import {
 
 const BAKJES_PER_ROL = 10;
 
+// Valideert invoer en gooit bij mislukking een gewone Error met een leesbare
+// melding. Een rauwe ZodError heeft een getter-only `message`, waardoor Next.js
+// crasht met "Cannot set property message of [object Object]".
+function parse<T extends z.ZodTypeAny>(schema: T, data: unknown): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? "Controleer de ingevulde gegevens.");
+  }
+  return result.data;
+}
+
 async function guardWrite(scope: string) {
   await assertSameOrigin();
   await requireUser();
@@ -157,8 +168,8 @@ async function reverseAndDeleteSale(tx: Prisma.TransactionClient, id: string) {
 }
 
 function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
-  const items = formItemsSchema.parse(String(formData.get("items") || "[]"));
-  return multiSaleInputSchema.parse({
+  const items = parse(formItemsSchema, String(formData.get("items") || "[]"));
+  return parse(multiSaleInputSchema, {
     kind: formData.get("kind") || fallbackKind,
     items,
     bedrag: formData.get("bedrag"),
@@ -210,7 +221,7 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
 
 export async function addPurchase(formData: FormData) {
   await guardWrite("write:purchase");
-  const input = purchaseInputSchema.parse(Object.fromEntries(formData));
+  const input = parse(purchaseInputSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     await createPurchaseFromInput(tx, input);
@@ -221,7 +232,7 @@ export async function addPurchase(formData: FormData) {
 
 export async function addPurchases(formData: FormData) {
   await guardWrite("write:purchase");
-  const rows = formPurchaseRowsSchema.parse(String(formData.get("rows") || "[]"));
+  const rows = parse(formPurchaseRowsSchema, String(formData.get("rows") || "[]"));
 
   await prisma.$transaction(async (tx) => {
     for (const row of rows) {
@@ -234,7 +245,7 @@ export async function addPurchases(formData: FormData) {
 
 export async function addSale(formData: FormData) {
   await guardWrite("write:sale");
-  const input = saleInputSchema.parse(Object.fromEntries(formData));
+  const input = parse(saleInputSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     await createSaleFromInput(tx, {
@@ -294,7 +305,7 @@ async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
 
 export async function confirmConcept(formData: FormData) {
   await guardWrite("write:concept");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     const concept = await tx.concept.findUnique({ where: { id } });
@@ -303,10 +314,10 @@ export async function confirmConcept(formData: FormData) {
       await tx.concept.delete({ where: { id } });
       throw new Error("Concept is verlopen.");
     }
-    const items = z
-      .array(z.object({ variantId: z.string().cuid(), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() }))
-      .parse(concept.items)
-      .map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
+    const items = parse(
+      z.array(z.object({ variantId: z.string().cuid(), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() })),
+      concept.items
+    ).map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
     await createSaleFromInput(tx, {
       kind: concept.kind,
       items,
@@ -326,14 +337,14 @@ export async function confirmConcept(formData: FormData) {
 
 export async function deleteConcept(formData: FormData) {
   await guardWrite("write:concept-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
   await prisma.concept.delete({ where: { id } });
   revalidatePath("/");
 }
 
 export async function deleteSale(formData: FormData) {
   await guardWrite("write:sale-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     await reverseAndDeleteSale(tx, id);
@@ -344,7 +355,7 @@ export async function deleteSale(formData: FormData) {
 
 export async function updateSale(formData: FormData) {
   await guardWrite("write:sale-update");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
   const input = parseMultiSaleForm(formData, SaleKind.MULTI);
 
   if (input.concept) throw new Error("Een bestaande verkoop kan niet als concept worden opgeslagen.");
@@ -359,7 +370,7 @@ export async function updateSale(formData: FormData) {
 
 export async function deletePurchase(formData: FormData) {
   await guardWrite("write:purchase-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     const purchase = await tx.purchase.findUnique({ where: { id }, include: { variant: true } });
@@ -387,7 +398,7 @@ export async function deletePurchase(formData: FormData) {
 
 export async function addDebt(formData: FormData) {
   await guardWrite("write:debt");
-  const input = debtInputSchema.parse(Object.fromEntries(formData));
+  const input = parse(debtInputSchema, Object.fromEntries(formData));
   await prisma.debt.create({
     data: {
       naam: input.naam,
@@ -399,7 +410,7 @@ export async function addDebt(formData: FormData) {
 
 export async function markDebtPaid(formData: FormData) {
   await guardWrite("write:debt");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
   const now = new Date();
   const debt = await prisma.debt.update({
     where: { id },
@@ -414,7 +425,7 @@ export async function markDebtPaid(formData: FormData) {
 
 export async function markAllDebtsPaid(formData: FormData) {
   await guardWrite("write:debt");
-  const { naam } = nameSchema.parse(Object.fromEntries(formData));
+  const { naam } = parse(nameSchema, Object.fromEntries(formData));
   const now = new Date();
   const debts = await prisma.debt.findMany({ where: { naam, betaald: false } });
   await prisma.$transaction([
@@ -429,7 +440,7 @@ export async function markAllDebtsPaid(formData: FormData) {
 
 export async function deleteDebt(formData: FormData) {
   await guardWrite("write:debt-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+  const { id } = parse(idSchema, Object.fromEntries(formData));
   await prisma.debt.delete({ where: { id } });
   revalidatePath("/");
 }
@@ -442,7 +453,7 @@ export async function savePrices(formData: FormData) {
     price: formData.get(`price-${quantity}`)
   }));
   rawPrices.push({ kind: PriceKind.MIX, quantity: null, price: formData.get("price-mix") });
-  const input = priceInputSchema.parse({ prices: rawPrices });
+  const input = parse(priceInputSchema, { prices: rawPrices });
 
   await prisma.$transaction(
     input.prices.map((row) =>
