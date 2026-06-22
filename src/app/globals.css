@@ -1690,7 +1690,6 @@ td:last-child, th:last-child { white-space: nowrap; }
 .growth-point text {
   fill: var(--muted);
   font-size: 11px;
-  text-anchor: middle;
   font-variant-numeric: tabular-nums;
 }
 .growth-column {

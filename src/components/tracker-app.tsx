@@ -910,7 +910,7 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
           </button>
           <span>
             {adminPeriod.label}
-            {weekOffset === 0 ? <span className="now-tag"> · nu</span> : null}
+            {weekOffset === 0 ? <span className="now-tag"> - nu</span> : null}
           </span>
           <button type="button" onClick={() => setWeekOffset((offset) => Math.min(0, offset + 1))} disabled={weekOffset >= 0} aria-label="Volgende periode">
             <IconChevronRight size={18} />
@@ -1204,7 +1204,7 @@ function TrendChart({ data }: { data: TrackerData }) {
             <span>{point ? dateNl(point.day.toISOString()) : "Tik of beweeg over een dag"}</span>
             <strong>
               {point
-                ? `Omzet ${euro(point.omzet)} · Winst ${euro(point.winst)} · ${point.stuks} stuks`
+                  ? `Omzet ${euro(point.omzet)} - Winst ${euro(point.winst)} - ${point.stuks} stuks`
                 : metric === "stuks"
                   ? `Totaal ${values.reduce((sum, value) => sum + value.stuks, 0)} stuks`
                   : `Totaal ${euro(values.reduce((sum, value) => sum + value[metric], 0))}`}
@@ -1383,7 +1383,7 @@ function PurchaseView({ data }: { data: TrackerData }) {
             </button>
             <SubmitButton>Inkoop verwerken</SubmitButton>
           </div>
-          <FormFeedback state={purchaseState} successLabel="Inkoop verwerkt ✓" />
+          <FormFeedback state={purchaseState} successLabel="Inkoop verwerkt" />
         </form>
       </Panel>
       <Panel title="Inkoophistorie">
@@ -1742,7 +1742,7 @@ function SalesView({ data }: { data: TrackerData }) {
                 ))}
                 <div className={`split-status ${splitValid ? "ok" : splitRemaining < 0 ? "over" : ""}`}>
                   <span>
-                    {splitValid ? "Verdeeld ✓" : splitRemaining > 0 ? `Nog ${euro(splitRemaining)} te verdelen` : `${euro(Math.abs(splitRemaining))} te veel`}
+                    {splitValid ? "Volledig verdeeld" : splitRemaining > 0 ? `Nog ${euro(splitRemaining)} te verdelen` : `${euro(Math.abs(splitRemaining))} te veel`}
                   </span>
                   <strong>{euro(splitSum)} / {euro(total)}</strong>
                 </div>
@@ -1775,7 +1775,7 @@ function SalesView({ data }: { data: TrackerData }) {
               </button>
             ) : null}
           </div>
-          <FormFeedback state={saleState} successLabel={editingSale ? "Wijziging opgeslagen ✓" : "Opgeslagen ✓"} />
+          <FormFeedback state={saleState} successLabel={editingSale ? "Wijziging opgeslagen" : "Opgeslagen"} />
           </form>
         </Panel>
       </div>
@@ -2034,7 +2034,7 @@ function StockAdjustForm({ data }: { data: TrackerData }) {
         </div>
 
         <SubmitButton disabled={!canSubmit}>Voorraad opslaan</SubmitButton>
-        <FormFeedback state={stockState} successLabel="Voorraad bijgewerkt ✓" />
+        <FormFeedback state={stockState} successLabel="Voorraad bijgewerkt" />
       </form>
     </Panel>
   );
@@ -2179,18 +2179,6 @@ function trendTone(value: number): TrendTone {
 
 function trendLabel(tone: TrendTone) {
   return tone === "up" ? "Groei" : tone === "down" ? "Daling" : "Stabiel";
-}
-
-function sumStatsGroups(groups: StatsGroup[]) {
-  return groups.reduce(
-    (sum, group) => ({
-      omzet: sum.omzet + group.omzet,
-      winst: sum.winst + group.winst,
-      stuks: sum.stuks + group.stuks,
-      transacties: sum.transacties + group.transacties
-    }),
-    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
-  );
 }
 
 function StatsView({ data, analytics }: { data: TrackerData; analytics: AnalyticsSummary }) {
@@ -2415,14 +2403,13 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
 
   const latest = groups[groups.length - 1];
   const previous = groups[groups.length - 2];
+  const first = groups[0];
+  const periodName = period === "4weken" ? "4-wekenperiode" : statsPeriodLabel(period);
   const omzetPct = percentChange(latest.omzet, previous.omzet);
   const winstPct = percentChange(latest.winst, previous.winst);
   const stuksPct = percentChange(latest.stuks, previous.stuks);
   const tone = trendTone(omzetPct);
-  const midpoint = Math.max(1, Math.floor(groups.length / 2));
-  const firstHalf = sumStatsGroups(groups.slice(0, midpoint));
-  const secondHalf = sumStatsGroups(groups.slice(midpoint));
-  const overallPct = percentChange(secondHalf.omzet, firstHalf.omzet);
+  const overallPct = percentChange(latest.omzet, first.omzet);
   const overallTone = trendTone(overallPct);
   const chartGroups = groups.slice(-10);
   const maxOmzet = Math.max(1, ...chartGroups.map((group) => group.omzet));
@@ -2446,10 +2433,10 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
           <strong>{percentText(omzetPct)}</strong>
           <p>
             {tone === "up"
-              ? `Je omzet ligt hoger dan de vorige ${statsPeriodLabel(period)}.`
+              ? `Je omzet is hoger dan de vorige ${periodName}.`
               : tone === "down"
-                ? `Je omzet ligt lager dan de vorige ${statsPeriodLabel(period)}.`
-                : `Je omzet blijft ongeveer gelijk aan de vorige ${statsPeriodLabel(period)}.`}
+                ? `Je omzet is lager dan de vorige ${periodName}.`
+                : `Je omzet blijft ongeveer gelijk aan de vorige ${periodName}.`}
           </p>
         </article>
         <div className="growth-breakdown">
@@ -2470,8 +2457,12 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
             return (
               <g className={`growth-point ${trendTone(pct)}`} key={group.label}>
                 <circle cx={point.x} cy={point.y} r="5" />
-                <text x={point.x} y="184">{index === 0 || index === chartGroups.length - 1 ? group.label : ""}</text>
-                <text x={point.x} y="206">{euro(group.omzet)}</text>
+                <text x={point.x} y="184" textAnchor={index === 0 ? "start" : index === chartGroups.length - 1 ? "end" : "middle"}>
+                  {index === 0 || index === chartGroups.length - 1 ? group.label : ""}
+                </text>
+                <text x={point.x} y="206" textAnchor={index === 0 ? "start" : index === chartGroups.length - 1 ? "end" : "middle"}>
+                  {euro(group.omzet)}
+                </text>
               </g>
             );
           })}
@@ -2479,7 +2470,7 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
       </div>
       <div className={`overall-direction ${overallTone}`}>
         <strong>Algemene richting: {trendLabel(overallTone)}</strong>
-        <span>{percentText(overallPct)} omzet in de recente helft tegenover de eerdere helft van deze selectie.</span>
+        <span>{percentText(overallPct)} omzet sinds de eerste getoonde periode.</span>
       </div>
     </Panel>
   );
@@ -2528,8 +2519,8 @@ function DebtView({ data }: { data: TrackerData }) {
           <p>{grouped.size ? `${grouped.size} personen met ${openDebts.length} open post${openDebts.length === 1 ? "" : "en"}.` : "Geen openstaande pof."}</p>
         </div>
         <div className="debt-hero-grid">
-          <span><small>Grootste posthouder</small><strong>{largestPerson ? largestPerson[0] : "-"}</strong><em>{largestPerson ? euro(largestPersonTotal) : euro(0)}</em></span>
-          <span><small>Oudste post</small><strong>{oldestDebt ? debtAgeLabel(oldestDebt) : "-"}</strong><em>{oldestDebt ? oldestDebt.naam : "Geen open post"}</em></span>
+          <span><small>Hoogste openstaand</small><strong>{largestPerson ? largestPerson[0] : "-"}</strong><em>{largestPerson ? euro(largestPersonTotal) : euro(0)}</em></span>
+          <span><small>Oudste post</small><strong>{oldestDebt ? debtAgeLabel(oldestDebt) : "-"}</strong><em>{oldestDebt ? oldestDebt.naam : "Geen open posten"}</em></span>
           <span><small>Gemiddeld p.p.</small><strong>{grouped.size ? euro(total / grouped.size) : euro(0)}</strong><em>over open personen</em></span>
         </div>
       </div>
@@ -2556,7 +2547,7 @@ function DebtView({ data }: { data: TrackerData }) {
         </div>
       ) : null}
       {section === "toevoegen" ? (
-      <Panel title="Pof toevoegen / aanpassen">
+      <Panel title="Pofpost toevoegen">
         <form action={debtAction} className="form-grid">
           <label>
             Naam
@@ -2570,13 +2561,13 @@ function DebtView({ data }: { data: TrackerData }) {
             <input name="bedrag" inputMode="decimal" placeholder="15,00" required />
           </label>
           <SubmitButton>Toevoegen</SubmitButton>
-          <FormFeedback state={debtState} successLabel="Toegevoegd ✓" />
+          <FormFeedback state={debtState} successLabel="Pofpost toegevoegd" />
         </form>
       </Panel>
       ) : null}
       {openDebts.length === 0 && section !== "toevoegen" ? (
         <Panel title="Openstaande pof">
-          <p className="empty">Niemand staat nog op de pof.</p>
+          <p className="empty">Geen openstaande pofposten.</p>
         </Panel>
       ) : openDebts.length > 0 && section !== "toevoegen" ? (
         <div className={`debt-workspace ${section === "posten" ? "wide" : ""}`}>
@@ -2591,13 +2582,13 @@ function DebtView({ data }: { data: TrackerData }) {
                   <article className="debt-person-card" key={naam}>
                     <div>
                       <strong>{naam}</strong>
-                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""} · laatst {latestDebt ? dateNl(latestDebt.datum) : "-"}</span>
+                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""} - laatst {latestDebt ? dateNl(latestDebt.datum) : "-"}</span>
                       <div className="debt-person-bar" aria-hidden="true"><span style={{ width: `${Math.max(6, (personTotal / maxPersonTotal) * 100)}%` }} /></div>
                     </div>
                     <div className="debt-person-total">
                       <strong>{euro(personTotal)}</strong>
                       <ActionButton action={markAllDebtsPaid} fields={{ naam }} className="" successToast="Alles op betaald gezet">
-                        Alles betaald
+                        Markeer alles betaald
                       </ActionButton>
                     </div>
                   </article>
@@ -2605,11 +2596,11 @@ function DebtView({ data }: { data: TrackerData }) {
               })}
             </div>
           </Panel>
-          <Panel title="Aandacht">
+          <Panel title="Opvolging">
             <div className="debt-focus-list">
               {oldOpen.length ? <span><strong>{oldOpen.length} post{oldOpen.length === 1 ? "" : "en"} ouder dan 30 dagen</strong><small>Begin hier als je de poflijst wilt opschonen.</small></span> : null}
-              {largestPerson ? <span><strong>{largestPerson[0]} staat het hoogst</strong><small>{euro(largestPersonTotal)} openstaand.</small></span> : null}
-              {oldestDebt ? <span><strong>Oudste open post</strong><small>{oldestDebt.naam} · {debtAgeLabel(oldestDebt)} · {euro(oldestDebt.bedrag)}</small></span> : null}
+              {largestPerson ? <span><strong>{largestPerson[0]} heeft het hoogste bedrag open</strong><small>{euro(largestPersonTotal)} openstaand.</small></span> : null}
+              {oldestDebt ? <span><strong>Oudste open post</strong><small>{oldestDebt.naam} - {debtAgeLabel(oldestDebt)} - {euro(oldestDebt.bedrag)}</small></span> : null}
             </div>
           </Panel>
           </>
@@ -2641,10 +2632,10 @@ function DebtView({ data }: { data: TrackerData }) {
                   </div>
                   <div className="debt-post-actions">
                     <ActionButton action={markDebtPaid} fields={{ id: debt.id }} className="" successToast="Op betaald gezet">
-                      Betaald
+                      Markeer betaald
                     </ActionButton>
                     <ActionButton action={deleteDebt} fields={{ id: debt.id }} className="danger" confirm successToast="Pof verwijderd">
-                      <IconTrash size={15} /><span>Verwijder</span>
+                      <IconTrash size={15} /><span>Verwijderen</span>
                     </ActionButton>
                   </div>
                 </article>
@@ -2698,7 +2689,7 @@ function SettingsView({ data }: { data: TrackerData }) {
             <span>Vaste klant rol: {euro(FIXED_CUSTOMER_PRICES[10])}</span>
           </div>
           <SubmitButton>Prijzen opslaan</SubmitButton>
-          <FormFeedback state={priceState} successLabel="Prijzen opgeslagen ✓" />
+          <FormFeedback state={priceState} successLabel="Prijzen opgeslagen" />
         </form>
       </Panel>
     </section>
