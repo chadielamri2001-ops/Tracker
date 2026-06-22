@@ -86,6 +86,9 @@ type Tab = "overzicht" | "inkoop" | "verkoop" | "voorraad" | "statistieken" | "p
 type SaleMode = "normal" | "multi" | "mix" | "rol";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
+type OverviewSection = "dashboard" | "recent" | "producten";
+type SaleSection = "nieuw" | "concepten" | "historie";
+type DebtSection = "personen" | "posten" | "toevoegen";
 type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
@@ -95,6 +98,7 @@ type SaleRecord = TrackerData["sales"][number];
 const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
 const ADMIN_ANCHOR = new Date(2026, 3, 17);
+const ALL_TIME_START = ADMIN_ANCHOR;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIXED_BRANDS = ["Iceberg", "Velo", "Pablo", "Killa", "Cuba", "Fox"];
 const FIXED_FLAVORS: Record<string, string[]> = {
@@ -217,7 +221,7 @@ function getPeriodBounds(period: OverviewPeriod, now = new Date()) {
       label: "deze maand"
     };
   }
-  return null;
+  return { start: ALL_TIME_START, end: addDays(today, 1), label: "vanaf 17 april 2026" };
 }
 
 function getPreviousBounds(period: OverviewPeriod, now = new Date()) {
@@ -480,6 +484,26 @@ function saleBaseAmount(sale: SaleRecord) {
 
 function saleItemsAsDraft(sale: SaleRecord) {
   return sale.items.map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
+}
+
+function SubNav<T extends string>({
+  value,
+  items,
+  onChange
+}: {
+  value: T;
+  items: Array<[T, string]>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="subnav" role="tablist">
+      {items.map(([id, label]) => (
+        <button key={id} type="button" className={value === id ? "active" : ""} onClick={() => onChange(id)} role="tab" aria-selected={value === id}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function SubmitButton({
@@ -808,6 +832,7 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
 
 function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Record<string, number>; analytics: AnalyticsSummary }) {
   const [period, setPeriod] = useState<OverviewPeriod>("alles");
+  const [section, setSection] = useState<OverviewSection>("dashboard");
   const [weekOffset, setWeekOffset] = useState(0);
   const latestPeriodOffset = useMemo(() => {
     for (let offset = 0; offset >= -52; offset--) {
@@ -841,6 +866,7 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
   const previousStats = previousBounds ? sumDays(analytics.days, previousBounds) : null;
   const voorraadWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
   const periodTitle = period === "week" && adminPeriod ? `periode ${adminPeriod.weekNumber}` : periodLabel(period);
+  const periodSub = period === "alles" ? "vanaf 17 april 2026" : undefined;
 
   function selectPeriod(value: OverviewPeriod) {
     setPeriod(value);
@@ -883,14 +909,14 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
           label={`Omzet (${periodTitle})`}
           value={euro(filteredStats.omzet)}
           delta={previousStats ? { current: filteredStats.omzet, previous: previousStats.omzet } : undefined}
-          sub={previousStats && previousBounds ? `vs ${euro(previousStats.omzet)} ${previousBounds.label}` : undefined}
+          sub={previousStats && previousBounds ? `vs ${euro(previousStats.omzet)} ${previousBounds.label}` : periodSub}
         />
         <Metric
           label={`Winst (${periodTitle})`}
           value={euro(filteredStats.winst)}
           tone={filteredStats.winst >= 0 ? "good" : "bad"}
           delta={previousStats ? { current: filteredStats.winst, previous: previousStats.winst } : undefined}
-          sub={previousStats && previousBounds ? `vs ${euro(previousStats.winst)} ${previousBounds.label}` : undefined}
+          sub={previousStats && previousBounds ? `vs ${euro(previousStats.winst)} ${previousBounds.label}` : periodSub}
         />
         <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
         <Metric
@@ -901,31 +927,45 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
         />
         <Metric label="Voorraad (stuks)" value={String(metrics.voorraad)} sub={`${euro(voorraadWaarde)} inkoop`} />
       </div>
-      <div className="dashboard-grid">
-        <div className="dashboard-main">
-          <TrendChart data={data} />
-          <RecentSalesPreview sales={data.sales.slice(0, 8)} />
+      <SubNav
+        value={section}
+        items={[
+          ["dashboard", "Dashboard"],
+          ["recent", "Recente verkopen"],
+          ["producten", "Producten"]
+        ]}
+        onChange={(value) => setSection(value as OverviewSection)}
+      />
+      {section === "dashboard" ? (
+        <div className="dashboard-grid">
+          <div className="dashboard-main">
+            <BusinessPulse data={data} />
+            <TrendChart data={data} />
+          </div>
+          <div className="dashboard-side">
+            <Insights data={data} />
+            <TopFlop analytics={analytics} period={period} />
+          </div>
         </div>
-        <div className="dashboard-side">
-          <Insights data={data} />
-          <TopFlop analytics={analytics} period={period} />
-        </div>
-      </div>
-      <Panel title="Prestaties per merk / smaak">
-        <DataTable
-          headers={["Merk", "Smaak", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
-          align={[false, false, true, true, true, true, true]}
-          rows={data.variants.map((variant) => [
-            variant.merk,
-            variant.smaak,
-            `${euro(variant.inkoopPrijs)}/st`,
-            String(variant.totaalVerkocht),
-            euro(variant.totaalOmzet),
-            euro(variant.totaalOmzet - variant.totaalVerkocht * variant.inkoopPrijs),
-            String(variant.voorraad)
-          ])}
-        />
-      </Panel>
+      ) : null}
+      {section === "recent" ? <RecentSalesPreview sales={data.sales.slice(0, 30)} /> : null}
+      {section === "producten" ? (
+        <Panel title="Prestaties per merk / smaak">
+          <DataTable
+            headers={["Merk", "Smaak", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
+            align={[false, false, true, true, true, true, true]}
+            rows={data.variants.map((variant) => [
+              variant.merk,
+              variant.smaak,
+              `${euro(variant.inkoopPrijs)}/st`,
+              String(variant.totaalVerkocht),
+              euro(variant.totaalOmzet),
+              euro(variant.totaalOmzet - variant.totaalVerkocht * variant.inkoopPrijs),
+              String(variant.voorraad)
+            ])}
+          />
+        </Panel>
+      ) : null}
     </section>
   );
 }
@@ -986,6 +1026,55 @@ function salesForecast(data: TrackerData): Forecast {
   const perDay = last7 / 7;
   const trendPct = prev7 > 0 ? ((last7 - prev7) / prev7) * 100 : 0;
   return { enough: daysOfData >= 10, daysOfData, perDay, next7: perDay * 7, trendPct };
+}
+
+function BusinessPulse({ data }: { data: TrackerData }) {
+  const series = useMemo(() => dailySeries(data, 14), [data]);
+  const previous = series.slice(0, 7).reduce(
+    (sum, day) => ({
+      omzet: sum.omzet + day.omzet,
+      winst: sum.winst + day.winst,
+      stuks: sum.stuks + day.stuks,
+      dagen: sum.dagen + (day.omzet > 0 || day.stuks > 0 ? 1 : 0)
+    }),
+    { omzet: 0, winst: 0, stuks: 0, dagen: 0 }
+  );
+  const current = series.slice(7).reduce(
+    (sum, day) => ({
+      omzet: sum.omzet + day.omzet,
+      winst: sum.winst + day.winst,
+      stuks: sum.stuks + day.stuks,
+      dagen: sum.dagen + (day.omzet > 0 || day.stuks > 0 ? 1 : 0)
+    }),
+    { omzet: 0, winst: 0, stuks: 0, dagen: 0 }
+  );
+  const pct = previous.omzet > 0 ? ((current.omzet - previous.omzet) / previous.omzet) * 100 : current.omzet > 0 ? 100 : 0;
+  const state = Math.abs(pct) < 5 ? "stable" : pct > 0 ? "up" : "down";
+  const label = state === "up" ? "Groei" : state === "down" ? "Daling" : "Stabiel";
+  const sentence =
+    state === "up"
+      ? "Je verkoopt meer dan vorige week."
+      : state === "down"
+        ? "Je verkoopt minder dan vorige week."
+        : "Je verkoop is ongeveer gelijk aan vorige week.";
+
+  return (
+    <Panel title="Groei-indicatie">
+      <div className={`pulse-card ${state}`}>
+        <div>
+          <span className="pulse-label">{label}</span>
+          <strong>{pct >= 0 ? "+" : "-"}{Math.abs(pct).toFixed(0)}%</strong>
+          <p>{sentence}</p>
+        </div>
+        <div className="pulse-grid">
+          <span><small>Laatste 7 dagen</small><strong>{euro(current.omzet)}</strong></span>
+          <span><small>Vorige 7 dagen</small><strong>{euro(previous.omzet)}</strong></span>
+          <span><small>Stuks</small><strong>{current.stuks} vs {previous.stuks}</strong></span>
+          <span><small>Actieve dagen</small><strong>{current.dagen} vs {previous.dagen}</strong></span>
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
 function Insights({ data }: { data: TrackerData }) {
@@ -1328,6 +1417,7 @@ function PurchaseView({ data }: { data: TrackerData }) {
 }
 
 function SalesView({ data }: { data: TrackerData }) {
+  const [section, setSection] = useState<SaleSection>("nieuw");
   const [mode, setMode] = useState<SaleMode>("normal");
   const [saleQty, setSaleQty] = useState(1);
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
@@ -1454,6 +1544,7 @@ function SalesView({ data }: { data: TrackerData }) {
           : priceFor(data, qty);
     const fixedPrice = nextMode === "rol" ? (FIXED_CUSTOMER_PRICES[BAKJES_PER_ROL] ?? 40) * rollen : FIXED_CUSTOMER_PRICES[qty] ?? qty * 5;
 
+    setSection("nieuw");
     setEditingSaleId(sale.id);
     setMode(nextMode);
     setSaleQty(nextMode === "normal" ? 1 : qty);
@@ -1496,7 +1587,17 @@ function SalesView({ data }: { data: TrackerData }) {
   return (
     <section>
       <h1>Verkoop</h1>
-      <div className="sale-workspace">
+      <SubNav
+        value={section}
+        items={[
+          ["nieuw", "Nieuwe verkoop"],
+          ["concepten", `Concepten${data.concepts.length ? ` (${data.concepts.length})` : ""}`],
+          ["historie", "Historie"]
+        ]}
+        onChange={setSection}
+      />
+      {section === "nieuw" ? (
+        <div className="sale-workspace">
         <Panel title="Aantal en prijs">
           <div className="price-grid" aria-label="Verkoopprijs kiezen">
             {Array.from({ length: 9 }, (_, index) => index + 1).map((quantity) => {
@@ -1665,9 +1766,9 @@ function SalesView({ data }: { data: TrackerData }) {
           </form>
         </Panel>
       </div>
-
-      <ConceptsView data={data} />
-      <SalesHistory data={data} onEdit={editSale} />
+      ) : null}
+      {section === "concepten" ? <ConceptsView data={data} showEmpty /> : null}
+      {section === "historie" ? <SalesHistory data={data} onEdit={editSale} /> : null}
     </section>
   );
 }
@@ -1736,7 +1837,7 @@ function SaleItemEditor({
   );
 }
 
-function ConceptsView({ data }: { data: TrackerData }) {
+function ConceptsView({ data, showEmpty = false }: { data: TrackerData; showEmpty?: boolean }) {
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
@@ -1746,7 +1847,13 @@ function ConceptsView({ data }: { data: TrackerData }) {
   }, []);
 
   const activeConcepts = now === null ? data.concepts : data.concepts.filter((concept) => new Date(concept.expiresAt).getTime() > now);
-  if (activeConcepts.length === 0) return null;
+  if (activeConcepts.length === 0) {
+    return showEmpty ? (
+      <Panel title="Conceptbestellingen">
+        <p className="empty">Geen open concepten.</p>
+      </Panel>
+    ) : null;
+  }
 
   return (
     <Panel title="Conceptbestellingen">
@@ -2216,6 +2323,7 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
 }
 
 function DebtView({ data }: { data: TrackerData }) {
+  const [section, setSection] = useState<DebtSection>("personen");
   const [debtState, debtAction] = useActionState(addDebt, null);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const total = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
@@ -2234,6 +2342,16 @@ function DebtView({ data }: { data: TrackerData }) {
   return (
     <section>
       <h1>Poflijst</h1>
+      <SubNav
+        value={section}
+        items={[
+          ["personen", "Personen"],
+          ["posten", "Open posten"],
+          ["toevoegen", "Toevoegen"]
+        ]}
+        onChange={setSection}
+      />
+      {section === "toevoegen" ? (
       <Panel title="Pof toevoegen / aanpassen">
         <form action={debtAction} className="form-grid">
           <label>
@@ -2251,18 +2369,20 @@ function DebtView({ data }: { data: TrackerData }) {
           <FormFeedback state={debtState} successLabel="Toegevoegd ✓" />
         </form>
       </Panel>
+      ) : null}
       <div className="metric-grid compact">
         <Metric label="Openstaand" value={euro(total)} tone={total > 0 ? "bad" : "good"} />
         <Metric label="Personen" value={String(grouped.size)} />
         <Metric label="Open posten" value={String(openDebts.length)} />
         <Metric label="Gemiddeld p.p." value={grouped.size ? euro(total / grouped.size) : euro(0)} />
       </div>
-      {openDebts.length === 0 ? (
+      {openDebts.length === 0 && section !== "toevoegen" ? (
         <Panel title="Openstaande pof">
           <p className="empty">Niemand staat nog op de pof.</p>
         </Panel>
-      ) : (
+      ) : openDebts.length > 0 && section !== "toevoegen" ? (
         <div className="debt-workspace">
+          {section === "personen" ? (
           <Panel title="Personen">
             <div className="debt-person-grid">
               {groupedEntries.map(([naam, debts]) => {
@@ -2284,6 +2404,8 @@ function DebtView({ data }: { data: TrackerData }) {
               })}
             </div>
           </Panel>
+          ) : null}
+          {section === "posten" ? (
           <Panel title="Openstaande posten">
             <div className="table-wrap">
               <table>
@@ -2317,8 +2439,9 @@ function DebtView({ data }: { data: TrackerData }) {
               </table>
             </div>
           </Panel>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
