@@ -901,9 +901,16 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
         />
         <Metric label="Voorraad (stuks)" value={String(metrics.voorraad)} sub={`${euro(voorraadWaarde)} inkoop`} />
       </div>
-      <Insights data={data} />
-      <TrendChart data={data} />
-      <TopFlop analytics={analytics} period={period} />
+      <div className="dashboard-grid">
+        <div className="dashboard-main">
+          <TrendChart data={data} />
+          <RecentSalesPreview sales={data.sales.slice(0, 8)} />
+        </div>
+        <div className="dashboard-side">
+          <Insights data={data} />
+          <TopFlop analytics={analytics} period={period} />
+        </div>
+      </div>
       <Panel title="Prestaties per merk / smaak">
         <DataTable
           headers={["Merk", "Smaak", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
@@ -1489,30 +1496,31 @@ function SalesView({ data }: { data: TrackerData }) {
   return (
     <section>
       <h1>Verkoop</h1>
-      <Panel title="Kies aantal en prijs">
-        <div className="price-grid" aria-label="Verkoopprijs kiezen">
-          {Array.from({ length: 9 }, (_, index) => index + 1).map((quantity) => {
-            const nextMode: SaleMode = quantity === 1 ? "normal" : "multi";
-            const selected = mode !== "mix" && mode !== "rol" && saleQty === quantity;
-            return (
-              <button className={`price-btn${selected ? " selected" : ""}`} key={quantity} onClick={() => selectSaleOption(quantity, nextMode)} type="button">
-                <span className="qty">{quantity}</span>
-                <span className="prijs">{euro(priceFor(data, quantity))}</span>
-              </button>
-            );
-          })}
-          <button className={`price-btn${mode === "rol" ? " selected" : ""}`} onClick={() => selectSaleOption(10, "rol")} type="button">
-            <span className="qty">Rol</span>
-            <span className="prijs">{euro(priceFor(data, 10))}</span>
-          </button>
-          <button className={`price-btn mix-btn${mode === "mix" ? " selected" : ""}`} onClick={() => selectSaleOption(10, "mix")} type="button">
-            <span className="qty">Mix rol</span>
-            <span className="prijs">{euro(mixPrice(data))}</span>
-          </button>
-        </div>
-      </Panel>
-      <Panel title={editingSale ? "Verkoop bewerken" : "Verkoop registreren"}>
-        <form action={saleAction} className="stack">
+      <div className="sale-workspace">
+        <Panel title="Aantal en prijs">
+          <div className="price-grid" aria-label="Verkoopprijs kiezen">
+            {Array.from({ length: 9 }, (_, index) => index + 1).map((quantity) => {
+              const nextMode: SaleMode = quantity === 1 ? "normal" : "multi";
+              const selected = mode !== "mix" && mode !== "rol" && saleQty === quantity;
+              return (
+                <button className={`price-btn${selected ? " selected" : ""}`} key={quantity} onClick={() => selectSaleOption(quantity, nextMode)} type="button">
+                  <span className="qty">{quantity}</span>
+                  <span className="prijs">{euro(priceFor(data, quantity))}</span>
+                </button>
+              );
+            })}
+            <button className={`price-btn${mode === "rol" ? " selected" : ""}`} onClick={() => selectSaleOption(10, "rol")} type="button">
+              <span className="qty">Rol</span>
+              <span className="prijs">{euro(priceFor(data, 10))}</span>
+            </button>
+            <button className={`price-btn mix-btn${mode === "mix" ? " selected" : ""}`} onClick={() => selectSaleOption(10, "mix")} type="button">
+              <span className="qty">Mix rol</span>
+              <span className="prijs">{euro(mixPrice(data))}</span>
+            </button>
+          </div>
+        </Panel>
+        <Panel title={editingSale ? "Verkoop bewerken" : "Verkoop registreren"}>
+          <form action={saleAction} className="stack">
           {editingSale ? <input type="hidden" name="id" value={editingSale.id} /> : null}
           <input type="hidden" name="kind" value={saleKind} />
           <input type="hidden" name="items" value={JSON.stringify(itemsForSubmit)} />
@@ -1654,8 +1662,9 @@ function SalesView({ data }: { data: TrackerData }) {
             ) : null}
           </div>
           <FormFeedback state={saleState} successLabel={editingSale ? "Wijziging opgeslagen ✓" : "Opgeslagen ✓"} />
-        </form>
-      </Panel>
+          </form>
+        </Panel>
+      </div>
 
       <ConceptsView data={data} />
       <SalesHistory data={data} onEdit={editSale} />
@@ -1785,6 +1794,39 @@ function ConceptsView({ data }: { data: TrackerData }) {
           </tbody>
         </table>
       </div>
+    </Panel>
+  );
+}
+
+function RecentSalesPreview({ sales }: { sales: SaleRecord[] }) {
+  return (
+    <Panel title="Recente verkopen">
+      {sales.length === 0 ? (
+        <p className="empty">Nog geen verkopen.</p>
+      ) : (
+        <div className="table-wrap compact-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Datum</th>
+                <th>Omschrijving</th>
+                <th>Betaling</th>
+                <th className="amount">Bedrag</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sales.map((sale) => (
+                <tr key={sale.id}>
+                  <td>{dateNl(sale.datum)}</td>
+                  <td>{sale.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td><PaymentBadges payments={sale.payments} /></td>
+                  <td className="amount"><strong>{euro(sale.bedrag)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -2209,69 +2251,74 @@ function DebtView({ data }: { data: TrackerData }) {
           <FormFeedback state={debtState} successLabel="Toegevoegd ✓" />
         </form>
       </Panel>
-      {openDebts.length ? (
-        <div className="pof-banner">
-          <span>Totaal openstaand</span>
-          <strong>{euro(total)}</strong>
-        </div>
-      ) : null}
       <div className="metric-grid compact">
         <Metric label="Openstaand" value={euro(total)} tone={total > 0 ? "bad" : "good"} />
         <Metric label="Personen" value={String(grouped.size)} />
         <Metric label="Open posten" value={String(openDebts.length)} />
         <Metric label="Gemiddeld p.p." value={grouped.size ? euro(total / grouped.size) : euro(0)} />
       </div>
-      <div className="debt-list">
-        {groupedEntries.map(([naam, debts]) => {
-          const personTotal = debts.reduce((sum, debt) => sum + debt.bedrag, 0);
-          return (
-            <article className="debt-card pof-person-card" key={naam}>
-              <div className="pof-person-header">
-                <div>
-                  <strong>{naam}</strong>
-                  <span>{debts.length} bestelling{debts.length > 1 ? "en" : ""} openstaand</span>
-                </div>
-                <div className="pof-person-actions">
-                  <strong>{euro(personTotal)}</strong>
-                  <ActionButton action={markAllDebtsPaid} fields={{ naam }} className="primary" successToast="Alles op betaald gezet">
-                    Alles betaald
-                  </ActionButton>
-                </div>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Datum</th>
-                      <th>Omschrijving</th>
-                      <th className="amount">Bedrag</th>
-                      <th>Actie</th>
+      {openDebts.length === 0 ? (
+        <Panel title="Openstaande pof">
+          <p className="empty">Niemand staat nog op de pof.</p>
+        </Panel>
+      ) : (
+        <div className="debt-workspace">
+          <Panel title="Personen">
+            <div className="debt-person-grid">
+              {groupedEntries.map(([naam, debts]) => {
+                const personTotal = debts.reduce((sum, debt) => sum + debt.bedrag, 0);
+                return (
+                  <article className="debt-person-card" key={naam}>
+                    <div>
+                      <strong>{naam}</strong>
+                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""}</span>
+                    </div>
+                    <div className="debt-person-total">
+                      <strong>{euro(personTotal)}</strong>
+                      <ActionButton action={markAllDebtsPaid} fields={{ naam }} className="" successToast="Alles op betaald gezet">
+                        Alles betaald
+                      </ActionButton>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </Panel>
+          <Panel title="Openstaande posten">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Naam</th>
+                    <th>Datum</th>
+                    <th>Omschrijving</th>
+                    <th className="amount">Bedrag</th>
+                    <th>Actie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openDebts.map((debt) => (
+                    <tr key={debt.id}>
+                      <td><strong>{debt.naam}</strong></td>
+                      <td>{dateNl(debt.datum)}</td>
+                      <td>{debtDescription(debt)}</td>
+                      <td className="amount"><strong>{euro(debt.bedrag)}</strong></td>
+                      <td className="button-row">
+                        <ActionButton action={markDebtPaid} fields={{ id: debt.id }} className="" successToast="Op betaald gezet">
+                          Betaald
+                        </ActionButton>
+                        <ActionButton action={deleteDebt} fields={{ id: debt.id }} className="danger" confirm successToast="Pof verwijderd">
+                          <IconTrash size={15} /><span>Verwijder</span>
+                        </ActionButton>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {debts.map((debt) => (
-                      <tr key={debt.id}>
-                        <td>{dateNl(debt.datum)}</td>
-                        <td>{debtDescription(debt)}</td>
-                        <td className="amount"><strong>{euro(debt.bedrag)}</strong></td>
-                        <td className="button-row">
-                          <ActionButton action={markDebtPaid} fields={{ id: debt.id }} className="" successToast="Op betaald gezet">
-                            Betaald
-                          </ActionButton>
-                          <ActionButton action={deleteDebt} fields={{ id: debt.id }} className="danger" confirm successToast="Pof verwijderd">
-                            <IconTrash size={15} /><span>Verwijder</span>
-                          </ActionButton>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          );
-        })}
-        {openDebts.length === 0 ? <p className="empty">Niemand staat nog op de pof.</p> : null}
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
     </section>
   );
 }

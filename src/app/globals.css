@@ -1,6 +1,6 @@
 /* ============================================================
    Tracker — Design System
-   Premium dark-first SaaS · black / anthracite / gold / white
+   Premium dark-first SaaS · graphite / slate / blue / white
    green = positive · red = warnings/negative only
    ------------------------------------------------------------
    Layer 1: tokens (color / space / radius / shadow / type /
@@ -81,18 +81,18 @@
   --text-2: #c7c7cc;
   --muted: #8b8b93;
 
-  --accent: #f2c14e;          /* warm gold */
-  --accent-hover: #f6cf6b;
-  --accent-press: #e3ad36;
-  --accent-soft: rgba(242, 193, 78, 0.12);
-  --accent-line: rgba(242, 193, 78, 0.45);
-  --on-accent: #1a1505;
+  --accent: #6ea8ff;
+  --accent-hover: #8bbaff;
+  --accent-press: #4f8df5;
+  --accent-soft: rgba(110, 168, 255, 0.12);
+  --accent-line: rgba(110, 168, 255, 0.38);
+  --on-accent: #07111f;
 
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.12);
   --danger: #f76d6d;
   --danger-soft: rgba(247, 109, 109, 0.13);
-  --warn: #f2c14e;
+  --warn: #f59e0b;
 
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -117,11 +117,11 @@
   --text-2: #46433f;
   --muted: #76726b;
 
-  --accent: #c8901a;          /* gold, darker for contrast on light */
-  --accent-hover: #b07f12;
-  --accent-press: #9a6e0d;
-  --accent-soft: rgba(200, 144, 26, 0.12);
-  --accent-line: rgba(200, 144, 26, 0.40);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-press: #1e40af;
+  --accent-soft: rgba(37, 99, 235, 0.10);
+  --accent-line: rgba(37, 99, 235, 0.32);
   --on-accent: #ffffff;
 
   --success: #0f9d6b;
@@ -153,11 +153,11 @@
     --text: #18161a;
     --text-2: #46433f;
     --muted: #76726b;
-    --accent: #c8901a;
-    --accent-hover: #b07f12;
-    --accent-press: #9a6e0d;
-    --accent-soft: rgba(200, 144, 26, 0.12);
-    --accent-line: rgba(200, 144, 26, 0.40);
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-press: #1e40af;
+    --accent-soft: rgba(37, 99, 235, 0.10);
+    --accent-line: rgba(37, 99, 235, 0.32);
     --on-accent: #ffffff;
     --success: #0f9d6b;
     --success-soft: rgba(15, 157, 107, 0.12);
@@ -266,7 +266,7 @@ h2 {
   border: 1px solid transparent;
 }
 .pay-cash { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
-.pay-pof { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+.pay-pof { background: rgba(245, 158, 11, 0.12); color: var(--warn); border-color: rgba(245, 158, 11, 0.28); }
 .pay-tikkie { background: var(--surface-3); color: var(--text-2); border-color: var(--border-strong); }
 .pay-badges { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 
@@ -445,7 +445,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
   color: var(--on-accent);
   font-size: var(--text-md);
   font-weight: var(--fw-extrabold);
@@ -493,7 +493,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   text-align: left;
 }
 .nav-item:hover { background: var(--surface-2); color: var(--text); }
-.nav-item.active { background: var(--accent-soft); color: var(--text); border-color: var(--accent-line); }
+.nav-item.active { background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); color: var(--text); border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); }
 .nav-item.active svg { color: var(--accent); }
 .nav-count {
   margin-left: auto;
@@ -503,8 +503,9 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   display: grid;
   place-items: center;
   border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   font-size: var(--text-xs);
   font-weight: var(--fw-bold);
 }
@@ -656,8 +657,8 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 .metric, .panel, .login-card, .topflop-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
 }
 
 .metric-grid {
@@ -695,6 +696,25 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 
 .panel { padding: var(--space-5); margin: var(--space-5) 0; }
 .panel-pad { padding: var(--space-5); }
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.dashboard-main,
+.dashboard-side {
+  display: grid;
+  gap: var(--space-5);
+}
+.dashboard-grid .panel {
+  margin: 0;
+}
+.compact-table th,
+.compact-table td {
+  padding-block: 0.65rem;
+}
 
 .form-grid {
   display: grid;
@@ -823,9 +843,9 @@ td:last-child, th:last-child { white-space: nowrap; }
   gap: var(--space-4);
   margin: var(--space-5) 0;
   padding: 1rem 1.25rem;
-  border: 1px solid var(--accent-line);
+  border: 1px solid rgba(245, 158, 11, 0.24);
   border-radius: var(--radius-md);
-  background: var(--accent-soft);
+  background: rgba(245, 158, 11, 0.09);
   color: var(--warn);
 }
 .banner.success { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); background: var(--success-soft); color: var(--success); }
@@ -1002,6 +1022,13 @@ td:last-child, th:last-child { white-space: nowrap; }
 .purchase-total span, .purchase-total strong { white-space: nowrap; }
 
 /* Sale builder */
+.sale-workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.sale-workspace .panel { margin-top: 0; }
 .sale-item-editor {
   width: 100%;
   display: grid;
@@ -1009,21 +1036,23 @@ td:last-child, th:last-child { white-space: nowrap; }
   gap: var(--space-3);
   align-items: end;
 }
-.price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: var(--space-2); }
+.price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: var(--space-2); }
 .price-btn {
-  min-height: 66px;
+  min-height: 60px;
   display: grid;
   gap: 0.2rem;
   align-content: center;
   justify-items: center;
   border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border-color: var(--border);
 }
-.price-btn.selected { background: var(--accent); color: var(--on-accent); border-color: transparent; box-shadow: var(--shadow-xs); }
-.price-btn.mix-btn { border-color: var(--accent-line); background: var(--accent-soft); }
-.price-btn.mix-btn.selected { background: var(--accent); color: var(--on-accent); }
+.price-btn.selected { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--text); border-color: var(--accent-line); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent); }
+.price-btn.mix-btn { border-color: color-mix(in srgb, var(--accent) 20%, var(--border)); background: var(--surface-2); }
+.price-btn.mix-btn.selected { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--text); }
 .price-btn .qty { font-size: var(--text-md); font-weight: var(--fw-extrabold); }
 .price-btn .prijs { color: var(--muted); font-size: var(--text-sm); }
-.price-btn.selected .prijs { color: color-mix(in srgb, var(--on-accent) 75%, transparent); }
+.price-btn.selected .prijs { color: var(--text-2); }
 
 .mix-builder {
   display: grid;
@@ -1054,7 +1083,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 .pay-grid button { flex: 1 1 90px; }
 .pay-btn.selected-cash { background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 55%, transparent); color: var(--success); font-weight: var(--fw-bold); }
 .pay-btn.selected-tikkie { background: color-mix(in srgb, #5b8def 16%, var(--surface)); border-color: color-mix(in srgb, #5b8def 55%, transparent); color: color-mix(in srgb, #5b8def 80%, var(--text)); font-weight: var(--fw-bold); }
-.pay-btn.selected-pof { background: var(--accent-soft); border-color: var(--accent-line); color: var(--warn); font-weight: var(--fw-bold); }
+.pay-btn.selected-pof { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.30); color: var(--warn); font-weight: var(--fw-bold); }
 
 /* Gesplitste betaling */
 .field-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
@@ -1109,6 +1138,42 @@ td:last-child, th:last-child { white-space: nowrap; }
   font-weight: var(--fw-semibold);
 }
 .debt-list { display: grid; gap: var(--space-3); }
+.debt-workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.debt-workspace .panel { margin-top: 0; }
+.debt-person-grid {
+  display: grid;
+  gap: var(--space-2);
+}
+.debt-person-card {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.debt-person-card strong { display: block; }
+.debt-person-card span { display: block; color: var(--muted); font-size: var(--text-sm); margin-top: 0.12rem; }
+.debt-person-total {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+.debt-person-total > strong {
+  font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
+}
+.debt-person-total button {
+  padding: 0.4rem 0.55rem;
+  font-size: var(--text-xs);
+}
 .debt-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
@@ -1127,7 +1192,7 @@ td:last-child, th:last-child { white-space: nowrap; }
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.pof-person-card { border-left: 3px solid var(--accent); }
+.pof-person-card { border-left: 3px solid rgba(245, 158, 11, 0.55); }
 .pof-person-header, .pof-person-actions {
   display: flex;
   align-items: center;
@@ -1295,6 +1360,9 @@ td:last-child, th:last-child { white-space: nowrap; }
 
 @media (max-width: 760px) {
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-grid,
+  .sale-workspace,
+  .debt-workspace { grid-template-columns: 1fr; }
   .debt-row { grid-template-columns: 1fr; }
   .inline-grid { grid-template-columns: 1fr; }
   .purchase-row { grid-template-columns: 1fr; }
