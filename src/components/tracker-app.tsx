@@ -420,6 +420,17 @@ function debtDescription(debt: TrackerData["debts"][number]) {
   return debt.sale.kind === SaleKind.MIX ? `Mix rol: ${items}` : items;
 }
 
+function debtAgeDays(debt: TrackerData["debts"][number]) {
+  return Math.max(0, calendarDayDiff(normalizeDate(new Date()), normalizeDate(new Date(debt.datum))));
+}
+
+function debtAgeLabel(debt: TrackerData["debts"][number]) {
+  const days = debtAgeDays(debt);
+  if (days === 0) return "Vandaag";
+  if (days === 1) return "1 dag open";
+  return `${days} dagen open`;
+}
+
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
   return data.sales.filter((sale) => (predicate ? predicate(sale) : true)).reduce(
     (stats, sale) => {
@@ -2415,6 +2426,17 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
   const overallTone = trendTone(overallPct);
   const chartGroups = groups.slice(-10);
   const maxOmzet = Math.max(1, ...chartGroups.map((group) => group.omzet));
+  const chartWidth = 640;
+  const chartHeight = 220;
+  const plot = { left: 34, right: 612, top: 18, bottom: 156 };
+  const pointFor = (group: StatsGroup, index: number) => {
+    const x = chartGroups.length === 1 ? (plot.left + plot.right) / 2 : plot.left + (index / (chartGroups.length - 1)) * (plot.right - plot.left);
+    const y = plot.bottom - (group.omzet / maxOmzet) * (plot.bottom - plot.top);
+    return { x, y };
+  };
+  const linePoints = chartGroups.map(pointFor);
+  const linePath = linePoints.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPath = `${plot.left},${plot.bottom} ${linePath} ${linePoints[linePoints.length - 1]?.x ?? plot.right},${plot.bottom}`;
 
   return (
     <Panel title="Groei-analyse">
@@ -2437,20 +2459,23 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
           <span><small>Stuksgroei</small><strong>{percentText(stuksPct)}</strong><em>{latest.transacties} transacties</em></span>
         </div>
       </div>
-      <div className="growth-chart" aria-label="Omzetontwikkeling per periode">
-        {chartGroups.map((group) => {
-          const previousGroup = groups[groups.findIndex((item) => item.label === group.label) - 1] || null;
-          const pct = previousGroup ? percentChange(group.omzet, previousGroup.omzet) : 0;
-          const barTone = trendTone(pct);
-          return (
-            <div className="growth-column" key={group.label}>
-              <span className={`growth-bar ${barTone}`} style={{ height: `${Math.max(6, (group.omzet / maxOmzet) * 100)}%` }} />
-              <small>{group.label}</small>
-              <strong>{euro(group.omzet)}</strong>
-              <em>{previousGroup ? percentText(pct) : "-"}</em>
-            </div>
-          );
-        })}
+      <div className="growth-line-chart" aria-label="Omzetontwikkeling per periode">
+        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img">
+          <polyline className="growth-area" points={areaPath} />
+          <polyline className="growth-line" points={linePath} />
+          {linePoints.map((point, index) => {
+            const group = chartGroups[index];
+            const previousGroup = groups[groups.findIndex((item) => item.label === group.label) - 1] || null;
+            const pct = previousGroup ? percentChange(group.omzet, previousGroup.omzet) : 0;
+            return (
+              <g className={`growth-point ${trendTone(pct)}`} key={group.label}>
+                <circle cx={point.x} cy={point.y} r="5" />
+                <text x={point.x} y="184">{index === 0 || index === chartGroups.length - 1 ? group.label : ""}</text>
+                <text x={point.x} y="206">{euro(group.omzet)}</text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
       <div className={`overall-direction ${overallTone}`}>
         <strong>Algemene richting: {trendLabel(overallTone)}</strong>
@@ -2462,6 +2487,7 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
 
 function DebtView({ data }: { data: TrackerData }) {
   const [section, setSection] = useState<DebtSection>("personen");
+  const [query, setQuery] = useState("");
   const [debtState, debtAction] = useActionState(addDebt, null);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const total = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
@@ -2480,10 +2506,33 @@ function DebtView({ data }: { data: TrackerData }) {
     const dateDiff = new Date(b.datum).getTime() - new Date(a.datum).getTime();
     return dateDiff || b.bedrag - a.bedrag;
   });
+  const filteredOpenDebts = sortedOpenDebts.filter((debt) => {
+    const haystack = `${debt.naam} ${debtDescription(debt)} ${dateNl(debt.datum)}`.toLowerCase();
+    return haystack.includes(query.trim().toLowerCase());
+  });
+  const maxPersonTotal = Math.max(1, ...groupedEntries.map(([, debts]) => debts.reduce((sum, debt) => sum + debt.bedrag, 0)));
+  const todayOpen = openDebts.filter((debt) => debtAgeDays(debt) <= 7);
+  const agingOpen = openDebts.filter((debt) => debtAgeDays(debt) > 7 && debtAgeDays(debt) <= 30);
+  const oldOpen = openDebts.filter((debt) => debtAgeDays(debt) > 30);
+  const largestPerson = groupedEntries[0] || null;
+  const largestPersonTotal = largestPerson ? largestPerson[1].reduce((sum, debt) => sum + debt.bedrag, 0) : 0;
+  const oldestDebt = [...openDebts].sort((a, b) => debtAgeDays(b) - debtAgeDays(a))[0] || null;
 
   return (
     <section>
       <h1>Poflijst</h1>
+      <div className="debt-hero">
+        <div className="debt-hero-main">
+          <span>Openstaand totaal</span>
+          <strong>{euro(total)}</strong>
+          <p>{grouped.size ? `${grouped.size} personen met ${openDebts.length} open post${openDebts.length === 1 ? "" : "en"}.` : "Geen openstaande pof."}</p>
+        </div>
+        <div className="debt-hero-grid">
+          <span><small>Grootste posthouder</small><strong>{largestPerson ? largestPerson[0] : "-"}</strong><em>{largestPerson ? euro(largestPersonTotal) : euro(0)}</em></span>
+          <span><small>Oudste post</small><strong>{oldestDebt ? debtAgeLabel(oldestDebt) : "-"}</strong><em>{oldestDebt ? oldestDebt.naam : "Geen open post"}</em></span>
+          <span><small>Gemiddeld p.p.</small><strong>{grouped.size ? euro(total / grouped.size) : euro(0)}</strong><em>over open personen</em></span>
+        </div>
+      </div>
       <SubNav
         value={section}
         items={[
@@ -2493,6 +2542,19 @@ function DebtView({ data }: { data: TrackerData }) {
         ]}
         onChange={setSection}
       />
+      {section !== "toevoegen" && openDebts.length > 0 ? (
+        <div className="debt-toolbar">
+          <label>
+            Zoeken
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Naam, smaak of datum" />
+          </label>
+          <div className="debt-aging">
+            <span><strong>{todayOpen.length}</strong><small>0-7 dagen</small></span>
+            <span><strong>{agingOpen.length}</strong><small>8-30 dagen</small></span>
+            <span className={oldOpen.length ? "attention" : ""}><strong>{oldOpen.length}</strong><small>30+ dagen</small></span>
+          </div>
+        </div>
+      ) : null}
       {section === "toevoegen" ? (
       <Panel title="Pof toevoegen / aanpassen">
         <form action={debtAction} className="form-grid">
@@ -2512,28 +2574,25 @@ function DebtView({ data }: { data: TrackerData }) {
         </form>
       </Panel>
       ) : null}
-      <div className="metric-grid compact">
-        <Metric label="Openstaand" value={euro(total)} tone={total > 0 ? "bad" : "good"} />
-        <Metric label="Personen" value={String(grouped.size)} />
-        <Metric label="Open posten" value={String(openDebts.length)} />
-        <Metric label="Gemiddeld p.p." value={grouped.size ? euro(total / grouped.size) : euro(0)} />
-      </div>
       {openDebts.length === 0 && section !== "toevoegen" ? (
         <Panel title="Openstaande pof">
           <p className="empty">Niemand staat nog op de pof.</p>
         </Panel>
       ) : openDebts.length > 0 && section !== "toevoegen" ? (
-        <div className="debt-workspace">
+        <div className={`debt-workspace ${section === "posten" ? "wide" : ""}`}>
           {section === "personen" ? (
+          <>
           <Panel title="Personen">
-            <div className="debt-person-grid">
+            <div className="debt-person-grid ledger">
               {groupedEntries.map(([naam, debts]) => {
                 const personTotal = debts.reduce((sum, debt) => sum + debt.bedrag, 0);
+                const latestDebt = [...debts].sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())[0];
                 return (
                   <article className="debt-person-card" key={naam}>
                     <div>
                       <strong>{naam}</strong>
-                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""}</span>
+                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""} · laatst {latestDebt ? dateNl(latestDebt.datum) : "-"}</span>
+                      <div className="debt-person-bar" aria-hidden="true"><span style={{ width: `${Math.max(6, (personTotal / maxPersonTotal) * 100)}%` }} /></div>
                     </div>
                     <div className="debt-person-total">
                       <strong>{euro(personTotal)}</strong>
@@ -2546,13 +2605,23 @@ function DebtView({ data }: { data: TrackerData }) {
               })}
             </div>
           </Panel>
+          <Panel title="Aandacht">
+            <div className="debt-focus-list">
+              {oldOpen.length ? <span><strong>{oldOpen.length} post{oldOpen.length === 1 ? "" : "en"} ouder dan 30 dagen</strong><small>Begin hier als je de poflijst wilt opschonen.</small></span> : null}
+              {largestPerson ? <span><strong>{largestPerson[0]} staat het hoogst</strong><small>{euro(largestPersonTotal)} openstaand.</small></span> : null}
+              {oldestDebt ? <span><strong>Oudste open post</strong><small>{oldestDebt.naam} · {debtAgeLabel(oldestDebt)} · {euro(oldestDebt.bedrag)}</small></span> : null}
+            </div>
+          </Panel>
+          </>
           ) : null}
           {section === "posten" ? (
           <Panel title="Openstaande posten">
             <div className="debt-post-list">
-              {sortedOpenDebts.map((debt) => (
+              {filteredOpenDebts.length === 0 ? <p className="empty">Geen open posten gevonden.</p> : null}
+              {filteredOpenDebts.map((debt, index) => (
                 <article className="debt-post-card" key={debt.id}>
                   <div className="debt-post-main">
+                    <span className="debt-post-index">{String(index + 1).padStart(2, "0")}</span>
                     <div>
                       <div className="debt-post-title">
                         <strong>{debt.naam}</strong>
@@ -2561,6 +2630,7 @@ function DebtView({ data }: { data: TrackerData }) {
                       <p>{debtDescription(debt)}</p>
                       <div className="debt-post-meta">
                         <span>{dateNl(debt.datum)}</span>
+                        <span>{debtAgeLabel(debt)}</span>
                         <span>{debt.sale ? "Uit verkoop" : "Handmatig"}</span>
                       </div>
                     </div>

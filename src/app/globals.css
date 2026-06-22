@@ -43,12 +43,12 @@
 
   --fw-medium: 500;
   --fw-semibold: 600;
-  --fw-bold: 700;
-  --fw-extrabold: 800;
+  --fw-bold: 680;
+  --fw-extrabold: 740;
 
-  --tracking-tight: -0.02em;
-  --tracking-wide: 0.07em;
-  --tracking-wider: 0.09em;
+  --tracking-tight: 0;
+  --tracking-wide: 0;
+  --tracking-wider: 0;
 
   --icon-sm: 16px;
   --icon-md: 18px;
@@ -205,13 +205,13 @@ body {
 /* Typography */
 h1 {
   font-size: var(--text-3xl);
-  font-weight: 760;
+  font-weight: var(--fw-bold);
   letter-spacing: var(--tracking-tight);
   margin: var(--space-2) 0 var(--space-4);
 }
 h2 {
   font-size: var(--text-xs);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
   color: var(--muted);
@@ -220,7 +220,7 @@ h2 {
 
 .eyebrow {
   color: var(--accent);
-  font-weight: var(--fw-extrabold);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wider);
   font-size: var(--text-sm);
@@ -539,7 +539,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 
 /* icon + label alignment for toolbar / row buttons */
 .nav-item, .theme-toggle, .sidebar .ghost,
-.button-row button, .debt-row button, .pof-person-actions button {
+.button-row button, .debt-row button, .debt-post-actions button, .pof-person-actions button {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -675,9 +675,9 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
-.metric strong { font-size: var(--text-2xl); font-weight: var(--fw-extrabold); letter-spacing: var(--tracking-tight); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metric strong { font-size: var(--text-xl); font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); line-height: 1.1; font-variant-numeric: tabular-nums; }
 .metric small { color: var(--muted); font-size: var(--text-sm); }
-.metric-grid.compact .metric strong { font-size: var(--text-lg); }
+.metric-grid.compact .metric strong { font-size: var(--text-md); }
 .metric-value { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
 .delta-chip {
   display: inline-flex;
@@ -1223,36 +1223,155 @@ td:last-child, th:last-child { white-space: nowrap; }
   font-weight: var(--fw-semibold);
 }
 .debt-list { display: grid; gap: var(--space-3); }
+.debt-hero {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--space-4);
+  align-items: stretch;
+  margin-bottom: var(--space-5);
+}
+.debt-hero-main,
+.debt-hero-grid span,
+.debt-toolbar,
+.debt-focus-list span {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.debt-hero-main {
+  display: grid;
+  align-content: center;
+  gap: 0.35rem;
+  padding: var(--space-5);
+}
+.debt-hero-main > span,
+.debt-hero-grid small,
+.debt-aging small {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+.debt-hero-main strong {
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.debt-hero-main p {
+  margin: 0;
+  color: var(--text-2);
+}
+.debt-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.debt-hero-grid span {
+  display: grid;
+  gap: 0.22rem;
+  padding: var(--space-4);
+}
+.debt-hero-grid strong {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.debt-hero-grid em {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.debt-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--space-4);
+  align-items: end;
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.debt-toolbar label {
+  gap: 0.4rem;
+}
+.debt-aging {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.debt-aging span {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.debt-aging strong {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.debt-aging .attention strong { color: var(--danger); }
 .debt-workspace {
   display: grid;
   grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
   gap: var(--space-5);
   align-items: start;
 }
+.debt-workspace.wide {
+  grid-template-columns: 1fr;
+}
 .debt-workspace .panel { margin-top: 0; }
 .debt-person-grid {
   display: grid;
   gap: var(--space-2);
+}
+.debt-person-grid.ledger {
+  gap: var(--space-3);
 }
 .debt-person-card {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
   align-items: center;
-  padding: 0.9rem;
+  padding: var(--space-4);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-2);
 }
-.debt-person-card strong { display: block; }
+.debt-person-card strong { display: block; font-weight: var(--fw-semibold); }
 .debt-person-card span { display: block; color: var(--muted); font-size: var(--text-sm); margin-top: 0.12rem; }
+.debt-person-card > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.debt-person-bar {
+  height: 6px;
+  margin-top: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  overflow: hidden;
+}
+.debt-person-bar span {
+  display: block;
+  height: 100%;
+  margin: 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
 .debt-person-total {
   display: grid;
   justify-items: end;
   gap: 0.45rem;
 }
 .debt-person-total > strong {
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 .debt-person-total button {
@@ -1273,9 +1392,22 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 .debt-post-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-4);
   align-items: start;
+}
+.debt-post-index {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
 }
 .debt-post-title {
   display: flex;
@@ -1286,6 +1418,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 .debt-post-title strong {
   font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
 }
 .debt-post-card p {
   margin: 0;
@@ -1316,12 +1449,13 @@ td:last-child, th:last-child { white-space: nowrap; }
 .debt-post-amount small {
   color: var(--muted);
   font-size: var(--text-xs);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
 .debt-post-amount strong {
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 .debt-post-actions {
@@ -1331,6 +1465,23 @@ td:last-child, th:last-child { white-space: nowrap; }
   gap: var(--space-2);
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
+}
+.debt-focus-list {
+  display: grid;
+  gap: var(--space-3);
+}
+.debt-focus-list span {
+  display: grid;
+  gap: 0.25rem;
+  padding: var(--space-4);
+}
+.debt-focus-list strong {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+.debt-focus-list small {
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 .debt-row {
   display: grid;
@@ -1359,7 +1510,7 @@ td:last-child, th:last-child { white-space: nowrap; }
   flex-wrap: wrap;
 }
 .pof-person-header span { display: block; color: var(--muted); font-size: var(--text-sm); margin-top: 0.15rem; }
-.pof-person-actions strong { font-size: var(--text-lg); font-weight: var(--fw-extrabold); }
+.pof-person-actions strong { font-size: var(--text-md); font-weight: var(--fw-semibold); }
 
 /* Settings */
 .settings-price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: var(--space-3); }
@@ -1370,8 +1521,8 @@ td:last-child, th:last-child { white-space: nowrap; }
   background: var(--surface-2);
 }
 .price-input-card.mix { background: var(--accent-soft); border-color: var(--accent-line); }
-.price-input-card span { color: var(--muted); font-size: var(--text-xs); font-weight: var(--fw-bold); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
-.price-input-card strong { font-size: var(--text-lg); font-weight: var(--fw-extrabold); }
+.price-input-card span { color: var(--muted); font-size: var(--text-xs); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
+.price-input-card strong { font-size: var(--text-md); font-weight: var(--fw-semibold); }
 .settings-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .settings-summary span {
   padding: 0.45rem 0.75rem;
@@ -1467,15 +1618,16 @@ td:last-child, th:last-child { white-space: nowrap; }
 .growth-summary.down span { color: var(--danger); background: var(--danger-soft); }
 .growth-summary.stable span { color: var(--accent); background: var(--accent-soft); }
 .growth-summary strong {
-  font-size: clamp(2rem, 5vw, 3.4rem);
+  font-size: clamp(1.8rem, 4.4vw, 2.8rem);
   line-height: 1;
   letter-spacing: var(--tracking-tight);
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 .growth-summary p {
   margin: 0;
   color: var(--text-2);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
 }
 .growth-breakdown {
   display: grid;
@@ -1496,6 +1648,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 .growth-breakdown strong {
   font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 .growth-breakdown em {
@@ -1503,16 +1656,42 @@ td:last-child, th:last-child { white-space: nowrap; }
   font-size: var(--text-sm);
   font-style: normal;
 }
-.growth-chart {
+.growth-line-chart {
   min-height: 220px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
-  gap: var(--space-3);
-  align-items: end;
   padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-2);
+}
+.growth-line-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.growth-area {
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+  stroke: none;
+}
+.growth-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.growth-point circle {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.growth-point.up circle { stroke: var(--success); }
+.growth-point.down circle { stroke: var(--danger); }
+.growth-point text {
+  fill: var(--muted);
+  font-size: 11px;
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
 }
 .growth-column {
   min-height: 190px;
@@ -1598,8 +1777,8 @@ td:last-child, th:last-child { white-space: nowrap; }
 /* Top / flop */
 .topflop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
 .topflop-card { display: grid; gap: var(--space-2); padding: 1.15rem; }
-.topflop-card h3 { margin: 0; font-size: var(--text-xs); font-weight: var(--fw-bold); color: var(--muted); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
-.topflop-card strong { font-size: var(--text-md); font-weight: var(--fw-bold); }
+.topflop-card h3 { margin: 0; font-size: var(--text-xs); font-weight: var(--fw-semibold); color: var(--muted); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
+.topflop-card strong { font-size: var(--text-md); font-weight: var(--fw-semibold); }
 .topflop-card.good strong { color: var(--success); }
 .topflop-card.bad strong { color: var(--danger); }
 
@@ -1652,6 +1831,10 @@ td:last-child, th:last-child { white-space: nowrap; }
 
 @media (max-width: 760px) {
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .debt-hero,
+  .debt-toolbar { grid-template-columns: 1fr; }
+  .debt-hero-grid,
+  .debt-aging { grid-template-columns: 1fr; }
   .dashboard-grid,
   .sale-workspace,
   .debt-workspace { grid-template-columns: 1fr; }
