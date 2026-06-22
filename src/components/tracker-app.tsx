@@ -94,6 +94,8 @@ type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { merk: string; smaak: string; rollen: number; losse: number; prijsPerRol: string };
 type SaleRecord = TrackerData["sales"][number];
+type StatsGroup = { label: string; sort: number; omzet: number; winst: number; stuks: number; transacties: number };
+type TrendTone = "up" | "down" | "stable";
 
 const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
@@ -2149,12 +2151,43 @@ function toRankItem(row: RankAcc, key: string, label: string, sort: RankSort): R
   return { key, merk: row.merk, label, value, valueLabel, sub };
 }
 
+function percentChange(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+function percentText(value: number) {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+function trendTone(value: number): TrendTone {
+  if (Math.abs(value) < 5) return "stable";
+  return value > 0 ? "up" : "down";
+}
+
+function trendLabel(tone: TrendTone) {
+  return tone === "up" ? "Groei" : tone === "down" ? "Daling" : "Stabiel";
+}
+
+function sumStatsGroups(groups: StatsGroup[]) {
+  return groups.reduce(
+    (sum, group) => ({
+      omzet: sum.omzet + group.omzet,
+      winst: sum.winst + group.winst,
+      stuks: sum.stuks + group.stuks,
+      transacties: sum.transacties + group.transacties
+    }),
+    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
+  );
+}
+
 function StatsView({ data, analytics }: { data: TrackerData; analytics: AnalyticsSummary }) {
   const [period, setPeriod] = useState<StatsPeriod>("week");
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const firstSale = useMemo(() => (analytics.days.length ? parseYmd(analytics.days[0].date) : null), [analytics.days]);
   const groups = useMemo(() => {
-    const map = new Map<string, { label: string; sort: number; omzet: number; winst: number; stuks: number; transacties: number }>();
+    const map = new Map<string, StatsGroup>();
     for (const day of analytics.days) {
       const date = parseYmd(day.date);
       const key = statsPeriodKey(date, period, firstSale);
@@ -2167,6 +2200,16 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
     }
     return [...map.values()].sort((a, b) => b.sort - a.sort);
   }, [analytics.days, firstSale, period]);
+  const chronologicalGroups = useMemo(() => [...groups].sort((a, b) => a.sort - b.sort), [groups]);
+  const previousByLabel = useMemo(() => {
+    const map = new Map<string, StatsGroup | null>();
+    chronologicalGroups.forEach((group, index) => map.set(group.label, chronologicalGroups[index - 1] || null));
+    return map;
+  }, [chronologicalGroups]);
+  const latestGroup = groups[0] || null;
+  const previousGroup = groups[1] || null;
+  const omzetGrowth = latestGroup && previousGroup ? percentChange(latestGroup.omzet, previousGroup.omzet) : 0;
+  const stuksGrowth = latestGroup && previousGroup ? percentChange(latestGroup.stuks, previousGroup.stuks) : 0;
   const shownGroups = selectedPeriod ? groups.filter((group) => group.label === selectedPeriod) : groups;
   const activeStats = selectedPeriod
     ? groups.find((group) => group.label === selectedPeriod) || { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
@@ -2260,23 +2303,51 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
       ) : (
         <>
           <div className="metric-grid">
-            <Metric label="Omzet" value={euro(activeStats.omzet)} />
-            <Metric label="Winst" value={euro(activeStats.winst)} tone={activeStats.winst >= 0 ? "good" : "bad"} />
+            <Metric
+              label="Omzet"
+              value={euro(activeStats.omzet)}
+              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.omzet, previous: previousGroup.omzet } : undefined}
+            />
+            <Metric
+              label="Winst"
+              value={euro(activeStats.winst)}
+              tone={activeStats.winst >= 0 ? "good" : "bad"}
+              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.winst, previous: previousGroup.winst } : undefined}
+            />
             <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
-            <Metric label="Bakjes verkocht" value={String(activeStats.stuks)} />
+            <Metric
+              label="Bakjes verkocht"
+              value={String(activeStats.stuks)}
+              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.stuks, previous: previousGroup.stuks } : undefined}
+            />
             <Metric label="Transacties" value={String(activeStats.transacties)} />
+            {!selectedPeriod ? (
+              <Metric
+                label="Richting"
+                value={trendLabel(trendTone(omzetGrowth))}
+                tone={trendTone(omzetGrowth) === "up" ? "good" : trendTone(omzetGrowth) === "down" ? "bad" : undefined}
+                sub={`${percentText(omzetGrowth)} omzet, ${percentText(stuksGrowth)} stuks vs vorige ${statsPeriodLabel(period)}`}
+              />
+            ) : null}
           </div>
+          {!selectedPeriod ? <StatsGrowthPanel groups={chronologicalGroups} period={period} /> : null}
           <Panel title={`Overzicht per ${statsPeriodLabel(period)}`}>
             <DataTable
-              headers={["Periode", "Transacties", "Stuks", "Omzet", "Winst", "Marge"]}
-              rows={shownGroups.map((group) => [
-                group.label,
-                String(group.transacties),
-                String(group.stuks),
-                euro(group.omzet),
-                euro(group.winst),
-                group.omzet > 0 ? `${((group.winst / group.omzet) * 100).toFixed(1)}%` : "0.0%"
-              ])}
+              headers={["Periode", "Transacties", "Stuks", "Stuks groei", "Omzet", "Omzet groei", "Winst", "Marge"]}
+              align={[false, true, true, true, true, true, true, true]}
+              rows={shownGroups.map((group) => {
+                const previous = previousByLabel.get(group.label);
+                return [
+                  group.label,
+                  String(group.transacties),
+                  String(group.stuks),
+                  previous ? percentText(percentChange(group.stuks, previous.stuks)) : "-",
+                  euro(group.omzet),
+                  previous ? percentText(percentChange(group.omzet, previous.omzet)) : "-",
+                  euro(group.winst),
+                  group.omzet > 0 ? `${((group.winst / group.omzet) * 100).toFixed(1)}%` : "0.0%"
+                ];
+              })}
             />
           </Panel>
           <Panel title="Beste verkoopdagen">
@@ -2322,6 +2393,73 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
   );
 }
 
+function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: StatsPeriod }) {
+  if (groups.length < 2) {
+    return (
+      <Panel title="Groei-analyse">
+        <p className="empty">Nog te weinig periodes om groei te vergelijken.</p>
+      </Panel>
+    );
+  }
+
+  const latest = groups[groups.length - 1];
+  const previous = groups[groups.length - 2];
+  const omzetPct = percentChange(latest.omzet, previous.omzet);
+  const winstPct = percentChange(latest.winst, previous.winst);
+  const stuksPct = percentChange(latest.stuks, previous.stuks);
+  const tone = trendTone(omzetPct);
+  const midpoint = Math.max(1, Math.floor(groups.length / 2));
+  const firstHalf = sumStatsGroups(groups.slice(0, midpoint));
+  const secondHalf = sumStatsGroups(groups.slice(midpoint));
+  const overallPct = percentChange(secondHalf.omzet, firstHalf.omzet);
+  const overallTone = trendTone(overallPct);
+  const chartGroups = groups.slice(-10);
+  const maxOmzet = Math.max(1, ...chartGroups.map((group) => group.omzet));
+
+  return (
+    <Panel title="Groei-analyse">
+      <div className="stats-growth">
+        <article className={`growth-summary ${tone}`}>
+          <span>{trendLabel(tone)}</span>
+          <strong>{percentText(omzetPct)}</strong>
+          <p>
+            {tone === "up"
+              ? `Je omzet ligt hoger dan de vorige ${statsPeriodLabel(period)}.`
+              : tone === "down"
+                ? `Je omzet ligt lager dan de vorige ${statsPeriodLabel(period)}.`
+                : `Je omzet blijft ongeveer gelijk aan de vorige ${statsPeriodLabel(period)}.`}
+          </p>
+        </article>
+        <div className="growth-breakdown">
+          <span><small>Huidige periode</small><strong>{euro(latest.omzet)}</strong><em>{latest.stuks} stuks</em></span>
+          <span><small>Vorige periode</small><strong>{euro(previous.omzet)}</strong><em>{previous.stuks} stuks</em></span>
+          <span><small>Winstgroei</small><strong>{percentText(winstPct)}</strong><em>{euro(latest.winst)} winst</em></span>
+          <span><small>Stuksgroei</small><strong>{percentText(stuksPct)}</strong><em>{latest.transacties} transacties</em></span>
+        </div>
+      </div>
+      <div className="growth-chart" aria-label="Omzetontwikkeling per periode">
+        {chartGroups.map((group) => {
+          const previousGroup = groups[groups.findIndex((item) => item.label === group.label) - 1] || null;
+          const pct = previousGroup ? percentChange(group.omzet, previousGroup.omzet) : 0;
+          const barTone = trendTone(pct);
+          return (
+            <div className="growth-column" key={group.label}>
+              <span className={`growth-bar ${barTone}`} style={{ height: `${Math.max(6, (group.omzet / maxOmzet) * 100)}%` }} />
+              <small>{group.label}</small>
+              <strong>{euro(group.omzet)}</strong>
+              <em>{previousGroup ? percentText(pct) : "-"}</em>
+            </div>
+          );
+        })}
+      </div>
+      <div className={`overall-direction ${overallTone}`}>
+        <strong>Algemene richting: {trendLabel(overallTone)}</strong>
+        <span>{percentText(overallPct)} omzet in de recente helft tegenover de eerdere helft van deze selectie.</span>
+      </div>
+    </Panel>
+  );
+}
+
 function DebtView({ data }: { data: TrackerData }) {
   const [section, setSection] = useState<DebtSection>("personen");
   const [debtState, debtAction] = useActionState(addDebt, null);
@@ -2338,6 +2476,10 @@ function DebtView({ data }: { data: TrackerData }) {
   const groupedEntries = [...grouped.entries()].sort(
     (a, b) => b[1].reduce((sum, debt) => sum + debt.bedrag, 0) - a[1].reduce((sum, debt) => sum + debt.bedrag, 0)
   );
+  const sortedOpenDebts = [...openDebts].sort((a, b) => {
+    const dateDiff = new Date(b.datum).getTime() - new Date(a.datum).getTime();
+    return dateDiff || b.bedrag - a.bedrag;
+  });
 
   return (
     <section>
@@ -2407,36 +2549,36 @@ function DebtView({ data }: { data: TrackerData }) {
           ) : null}
           {section === "posten" ? (
           <Panel title="Openstaande posten">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Naam</th>
-                    <th>Datum</th>
-                    <th>Omschrijving</th>
-                    <th className="amount">Bedrag</th>
-                    <th>Actie</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {openDebts.map((debt) => (
-                    <tr key={debt.id}>
-                      <td><strong>{debt.naam}</strong></td>
-                      <td>{dateNl(debt.datum)}</td>
-                      <td>{debtDescription(debt)}</td>
-                      <td className="amount"><strong>{euro(debt.bedrag)}</strong></td>
-                      <td className="button-row">
-                        <ActionButton action={markDebtPaid} fields={{ id: debt.id }} className="" successToast="Op betaald gezet">
-                          Betaald
-                        </ActionButton>
-                        <ActionButton action={deleteDebt} fields={{ id: debt.id }} className="danger" confirm successToast="Pof verwijderd">
-                          <IconTrash size={15} /><span>Verwijder</span>
-                        </ActionButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="debt-post-list">
+              {sortedOpenDebts.map((debt) => (
+                <article className="debt-post-card" key={debt.id}>
+                  <div className="debt-post-main">
+                    <div>
+                      <div className="debt-post-title">
+                        <strong>{debt.naam}</strong>
+                        <span className="status-pill status-open">Openstaand</span>
+                      </div>
+                      <p>{debtDescription(debt)}</p>
+                      <div className="debt-post-meta">
+                        <span>{dateNl(debt.datum)}</span>
+                        <span>{debt.sale ? "Uit verkoop" : "Handmatig"}</span>
+                      </div>
+                    </div>
+                    <div className="debt-post-amount">
+                      <small>Bedrag</small>
+                      <strong>{euro(debt.bedrag)}</strong>
+                    </div>
+                  </div>
+                  <div className="debt-post-actions">
+                    <ActionButton action={markDebtPaid} fields={{ id: debt.id }} className="" successToast="Op betaald gezet">
+                      Betaald
+                    </ActionButton>
+                    <ActionButton action={deleteDebt} fields={{ id: debt.id }} className="danger" confirm successToast="Pof verwijderd">
+                      <IconTrash size={15} /><span>Verwijder</span>
+                    </ActionButton>
+                  </div>
+                </article>
+              ))}
             </div>
           </Panel>
           ) : null}
