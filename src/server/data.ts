@@ -9,11 +9,11 @@ export async function getTrackerData() {
 
   const [variants, purchases, sales, debts, concepts, prices] = await Promise.all([
     prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] }),
-    prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 200 }),
+    prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 2000 }),
     prisma.sale.findMany({
-      include: { items: { include: { variant: true } } },
+      include: { items: { include: { variant: true } }, payments: { orderBy: { createdAt: "asc" } } },
       orderBy: { datum: "desc" },
-      take: 300
+      take: 5000
     }),
     prisma.debt.findMany({
       include: { sale: { include: { items: { include: { variant: true } } } } },
@@ -53,6 +53,10 @@ export async function getTrackerData() {
       bezorgkosten: sale.bezorgkosten === null ? null : Number(sale.bezorgkosten),
       rolAantal: sale.rolAantal,
       klantNaam: sale.klantNaam,
+      pofBetaald: sale.pofBetaald,
+      payments: sale.payments.length
+        ? sale.payments.map((payment) => ({ method: payment.method as PaymentMethod, bedrag: Number(payment.bedrag) }))
+        : [{ method: sale.betaalwijze as PaymentMethod, bedrag: Number(sale.bedrag) }],
       items: sale.items.map((item) => ({
         id: item.id,
         variantId: item.variantId,

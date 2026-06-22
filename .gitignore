@@ -5,6 +5,7 @@ node_modules
 out
 coverage
 *.log
+dev-restart-*.txt
 backups/
 legacy-export*.json
 dist

@@ -22,12 +22,15 @@ const saleDate = z.preprocess((value) => {
   return date;
 }, z.date().min(new Date("2020-01-01T00:00:00.000Z")).optional());
 
-export const purchaseInputSchema = z.object({
-  merk: z.string().trim().min(1).max(80),
-  smaak: z.string().trim().min(1).max(120),
-  rollen: z.coerce.number().int().min(1).max(1000),
-  prijsPerRol: money
-});
+export const purchaseInputSchema = z
+  .object({
+    merk: z.string().trim().min(1).max(80),
+    smaak: z.string().trim().min(1).max(120),
+    rollen: z.coerce.number().int().min(0).max(1000),
+    losse: z.preprocess((value) => (value === "" || value === null || value === undefined ? 0 : value), z.coerce.number().int().min(0).max(1000)),
+    prijsPerRol: money
+  })
+  .refine((value) => value.rollen + value.losse >= 1, { message: "Voer minstens 1 rol of 1 los pakje in." });
 
 export const purchaseRowsInputSchema = z.array(purchaseInputSchema).min(1).max(50);
 
@@ -51,6 +54,12 @@ export const saleItemInputSchema = z.object({
   aantal: z.coerce.number().int().min(1).max(1000)
 });
 
+// Eén deel van een (eventueel gesplitste) betaling: cash/tikkie/pof + bedrag.
+export const paymentSplitInputSchema = z.object({
+  method: z.nativeEnum(PaymentMethod),
+  bedrag: money
+});
+
 export const multiSaleInputSchema = z.object({
   kind: z.nativeEnum(SaleKind).default(SaleKind.MULTI),
   items: z.array(saleItemInputSchema).min(1).max(25),
@@ -65,6 +74,12 @@ export const multiSaleInputSchema = z.object({
   klantNaam: optionalName,
   datum: saleDate,
   concept: z.preprocess((value) => value === "on" || value === "true", z.boolean().default(false))
+});
+
+export const stockAdjustInputSchema = z.object({
+  variantId: z.string().cuid(),
+  aantal: z.coerce.number().int().min(0).max(100000),
+  mode: z.enum(["add", "set"])
 });
 
 export const debtInputSchema = z.object({
@@ -125,6 +140,15 @@ export const trackerDataSchema = z.object({
       bezorgkosten: z.number().nullable(),
       rolAantal: z.number().nullable(),
       klantNaam: z.string().nullable(),
+      pofBetaald: z.boolean(),
+      payments: z
+        .array(
+          z.object({
+            method: z.nativeEnum(PaymentMethod),
+            bedrag: z.number()
+          })
+        )
+        .default([]),
       items: z.array(
         z.object({
           id: z.string(),

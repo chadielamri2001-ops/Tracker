@@ -85,11 +85,24 @@ model Sale {
   paidAt       DateTime?
   createdAt    DateTime      @default(now())
   items        SaleItem[]
+  payments     Payment[]
   debt         Debt?
 
   @@index([datum])
   @@index([betaalwijze])
   @@index([kind])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  saleId    String
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  method    PaymentMethod
+  bedrag    Decimal       @db.Decimal(12, 2)
+  createdAt DateTime      @default(now())
+
+  @@index([saleId])
+  @@index([method])
 }
 
 model SaleItem {
