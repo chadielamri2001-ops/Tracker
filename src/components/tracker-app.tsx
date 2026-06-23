@@ -2393,6 +2393,8 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
 }
 
 function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: StatsPeriod }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
   if (groups.length < 2) {
     return (
       <Panel title="Groei-analyse">
@@ -2413,8 +2415,12 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
   const overallTone = trendTone(overallPct);
   const chartGroups = groups.slice(-10);
   const maxOmzet = Math.max(1, ...chartGroups.map((group) => group.omzet));
+  const selectedIndex = Math.min(activeIndex ?? chartGroups.length - 1, chartGroups.length - 1);
+  const selectedGroup = chartGroups[selectedIndex];
+  const selectedPrevious = groups[groups.findIndex((item) => item.label === selectedGroup.label) - 1] || null;
+  const selectedPct = selectedPrevious ? percentChange(selectedGroup.omzet, selectedPrevious.omzet) : 0;
   const chartWidth = 640;
-  const chartHeight = 220;
+  const chartHeight = 178;
   const plot = { left: 34, right: 612, top: 18, bottom: 156 };
   const pointFor = (group: StatsGroup, index: number) => {
     const x = chartGroups.length === 1 ? (plot.left + plot.right) / 2 : plot.left + (index / (chartGroups.length - 1)) * (plot.right - plot.left);
@@ -2455,18 +2461,34 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
             const previousGroup = groups[groups.findIndex((item) => item.label === group.label) - 1] || null;
             const pct = previousGroup ? percentChange(group.omzet, previousGroup.omzet) : 0;
             return (
-              <g className={`growth-point ${trendTone(pct)}`} key={group.label}>
+              <g
+                className={`growth-point ${trendTone(pct)}${selectedIndex === index ? " active" : ""}`}
+                key={group.label}
+                onClick={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onMouseEnter={() => setActiveIndex(index)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setActiveIndex(index);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <title>{`${group.label}: ${euro(group.omzet)}`}</title>
                 <circle cx={point.x} cy={point.y} r="5" />
-                <text x={point.x} y="184" textAnchor={index === 0 ? "start" : index === chartGroups.length - 1 ? "end" : "middle"}>
-                  {index === 0 || index === chartGroups.length - 1 ? group.label : ""}
-                </text>
-                <text x={point.x} y="206" textAnchor={index === 0 ? "start" : index === chartGroups.length - 1 ? "end" : "middle"}>
-                  {euro(group.omzet)}
-                </text>
               </g>
             );
           })}
         </svg>
+        <div className="growth-chart-readout">
+          <strong>{selectedGroup.label}</strong>
+          <span>Omzet {euro(selectedGroup.omzet)}</span>
+          <span>Winst {euro(selectedGroup.winst)}</span>
+          <span>{selectedGroup.stuks} stuks</span>
+          <span>{selectedPrevious ? `${percentText(selectedPct)} vs vorige periode` : "Eerste periode"}</span>
+        </div>
       </div>
       <div className={`overall-direction ${overallTone}`}>
         <strong>Algemene richting: {trendLabel(overallTone)}</strong>
