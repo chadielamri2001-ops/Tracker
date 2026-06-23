@@ -8,6 +8,7 @@ export default async function HomePage() {
   const session = await auth();
   if (!session) redirect("/login");
 
-  const [data, analytics] = await Promise.all([getTrackerData(), getAnalytics()]);
+  const data = await getTrackerData();
+  const analytics = await getAnalytics();
   return <TrackerApp data={data} analytics={analytics} userEmail={session.user.email || "gebruiker"} />;
 }

@@ -7,21 +7,19 @@ export async function getTrackerData() {
   await requireUser();
   await prisma.concept.deleteMany({ where: { expiresAt: { lte: new Date() } } });
 
-  const [variants, purchases, sales, debts, concepts, prices] = await Promise.all([
-    prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] }),
-    prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 2000 }),
-    prisma.sale.findMany({
-      include: { items: { include: { variant: true } }, payments: { orderBy: { createdAt: "asc" } } },
-      orderBy: { datum: "desc" },
-      take: 5000
-    }),
-    prisma.debt.findMany({
-      include: { sale: { include: { items: { include: { variant: true } } } } },
-      orderBy: [{ betaald: "asc" }, { datum: "desc" }]
-    }),
-    prisma.concept.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] })
-  ]);
+  const variants = await prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] });
+  const purchases = await prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 2000 });
+  const sales = await prisma.sale.findMany({
+    include: { items: { include: { variant: true } }, payments: { orderBy: { createdAt: "asc" } } },
+    orderBy: { datum: "desc" },
+    take: 5000
+  });
+  const debts = await prisma.debt.findMany({
+    include: { sale: { include: { items: { include: { variant: true } } } } },
+    orderBy: [{ betaald: "asc" }, { datum: "desc" }]
+  });
+  const concepts = await prisma.concept.findMany({ orderBy: { createdAt: "desc" } });
+  const prices = await prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] });
 
   return trackerDataSchema.parse({
     variants: variants.map((variant) => ({
