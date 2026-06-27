@@ -1,6 +1,6 @@
 "use client";
 
-import { PaymentMethod, PriceKind, SaleKind } from "@prisma/client";
+import { PaymentMethod, PriceKind, ProductType, SaleKind } from "@prisma/client";
 import { signOut } from "next-auth/react";
 import { Fragment, useActionState, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
@@ -19,6 +19,7 @@ import {
   IconLogout,
   IconMoon,
   IconPackage,
+  IconPlus,
   IconSearch,
   IconSettings,
   IconSun,
@@ -28,6 +29,7 @@ import {
 } from "./icons";
 import {
   addDebt,
+  addGiveaway,
   addMultiSale,
   addPurchases,
   adjustStock,
@@ -41,7 +43,22 @@ import {
   savePrices,
   updateSale
 } from "@/server/actions";
-import type { ActionState } from "@/lib/action-state";
+import type { ActionState, AiResult } from "@/lib/action-state";
+import { anomalyScan, askInsights, promoAdvice, weeklySummary } from "@/server/ai";
+import {
+  clearanceSuggestions,
+  dailySeries,
+  distinctSalesDays,
+  forecastRows,
+  loyaltyCards,
+  restockSuggestions,
+  salesForecast,
+  STAMPS_PER_REWARD,
+  variantVelocity,
+  weekdayStats,
+  type DayPoint,
+  type SeriesMetric
+} from "@/lib/insights";
 
 type FormAction = (prev: ActionState, formData: FormData) => Promise<ActionState>;
 
@@ -87,22 +104,24 @@ type SaleMode = "normal" | "multi" | "mix" | "rol";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type OverviewSection = "dashboard" | "recent" | "producten";
-type SaleSection = "nieuw" | "concepten" | "historie";
-type DebtSection = "personen" | "posten" | "toevoegen";
+type SaleSection = "nieuw" | "weggeven" | "concepten" | "historie";
+type DebtSection = "personen" | "posten" | "stempelkaarten" | "toevoegen";
 type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
-type PurchaseDraft = { merk: string; smaak: string; rollen: number; losse: number; prijsPerRol: string };
+type PurchaseDraft = { productType: ProductType; merk: string; smaak: string; rollen: number; losse: number; prijsPerRol: string; stuks: number; prijsPerStuk: string };
 type SaleRecord = TrackerData["sales"][number];
 type StatsGroup = { label: string; sort: number; omzet: number; winst: number; stuks: number; transacties: number };
 type TrendTone = "up" | "down" | "stable";
 
 const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
+const VAPE_PRICES: Record<number, number> = { 1: 15, 2: 30, 3: 40 };
 const ADMIN_ANCHOR = new Date(2026, 3, 17);
 const ALL_TIME_START = ADMIN_ANCHOR;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIXED_BRANDS = ["Iceberg", "Velo", "Pablo", "Killa", "Cuba", "Fox"];
+const FIXED_VAPE_BRANDS = ["Vape"];
 const FIXED_FLAVORS: Record<string, string[]> = {
   Pablo: [
     "Ice Cold",
@@ -268,8 +287,11 @@ function PaymentBadge({ method }: { method: PaymentMethod }) {
 // Toont één badge bij een enkele betaling, of meerdere badges met bedrag bij een
 // gesplitste betaling (cash/tikkie/pof gecombineerd).
 function PaymentBadges({ payments }: { payments: SaleRecord["payments"] }) {
-  if (payments.length <= 1) {
-    return <PaymentBadge method={payments[0]?.method ?? PaymentMethod.CASH} />;
+  if (payments.length === 0) {
+    return <span className="pay-badge pay-gratis">Gratis</span>;
+  }
+  if (payments.length === 1) {
+    return <PaymentBadge method={payments[0].method} />;
   }
   return (
     <span className="pay-badges">
@@ -283,6 +305,7 @@ function PaymentBadges({ payments }: { payments: SaleRecord["payments"] }) {
 }
 
 function SaleStatus({ sale }: { sale: SaleRecord }) {
+  if (sale.gratis) return <span className="status-pill status-gratis">Gratis</span>;
   const hasPof = sale.payments.some((payment) => payment.method === PaymentMethod.POF);
   if (!hasPof) return <span className="status-pill status-ok">Voldaan</span>;
   return sale.pofBetaald ? (
@@ -304,6 +327,19 @@ function purchaseQtyLabel(purchase: { rollen: number; aantal: number }) {
   return parts.join(" + ") || `${purchase.aantal} st`;
 }
 
+function productTypeLabel(productType: ProductType) {
+  return productType === ProductType.VAPE ? "Vape" : "Snus";
+}
+
+function isVapeVariant(variant?: Pick<TrackerData["variants"][number], "productType"> | null) {
+  return variant?.productType === ProductType.VAPE;
+}
+
+function purchaseUnitsLabel(purchase: { productType: ProductType; rollen: number; aantal: number }) {
+  if (purchase.productType === ProductType.VAPE) return `${purchase.aantal} vape${purchase.aantal === 1 ? "" : "s"}`;
+  return purchaseQtyLabel(purchase);
+}
+
 function priceFor(data: TrackerData, quantity: number) {
   const configured = data.prices.find((item) => item.kind === PriceKind.STANDARD && item.quantity === quantity)?.price;
   if (configured !== undefined) return configured;
@@ -312,6 +348,13 @@ function priceFor(data: TrackerData, quantity: number) {
   if (quantity === 4) return 25;
   if (quantity === 10) return 45;
   return 25 + (quantity - 4) * 5;
+}
+
+function vapePriceFor(quantity: number) {
+  if (quantity <= 0) return 0;
+  const bundles = Math.floor(quantity / 3);
+  const rest = quantity % 3;
+  return bundles * VAPE_PRICES[3] + (rest ? VAPE_PRICES[rest] : 0);
 }
 
 function mixPrice(data: TrackerData) {
@@ -323,6 +366,11 @@ function variantName(data: TrackerData, id: string) {
   return variant ? `${variant.merk} ${variant.smaak}` : "Onbekend";
 }
 
+function saleItemLabel(item: { productType?: ProductType; merk: string; smaak: string; aantal: number }) {
+  const prefix = item.productType === ProductType.VAPE ? "Vape · " : "";
+  return `${prefix}${item.merk} ${item.smaak} x${item.aantal}`;
+}
+
 function parseMoneyDraft(value: string) {
   const parsed = Number(value.replace(",", "."));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -332,9 +380,9 @@ function uniqueValues(values: string[]) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
 }
 
-function purchaseFlavorOptions(data: TrackerData, merk: string) {
-  const existing = data.variants.filter((variant) => !merk || variant.merk === merk).map((variant) => variant.smaak);
-  const fixed = merk ? FIXED_FLAVORS[merk] || [] : Object.values(FIXED_FLAVORS).flat();
+function purchaseFlavorOptions(data: TrackerData, productType: ProductType, merk: string) {
+  const existing = data.variants.filter((variant) => variant.productType === productType && (!merk || variant.merk === merk)).map((variant) => variant.smaak);
+  const fixed = productType === ProductType.SNUS ? (merk ? FIXED_FLAVORS[merk] || [] : Object.values(FIXED_FLAVORS).flat()) : [];
   return uniqueValues([...fixed, ...existing]);
 }
 
@@ -355,6 +403,11 @@ function stockRolls(voorraad: number) {
   if (rollen > 0 && los > 0) return `${rollen} rol${rollen > 1 ? "len" : ""} + ${los} los`;
   if (rollen > 0) return `${rollen} rol${rollen > 1 ? "len" : ""}`;
   return `${los} los`;
+}
+
+function stockUnits(variant: Pick<TrackerData["variants"][number], "productType" | "voorraad">) {
+  if (variant.productType === ProductType.VAPE) return `${variant.voorraad} vape${variant.voorraad === 1 ? "" : "s"}`;
+  return stockRolls(variant.voorraad);
 }
 
 // De oude import is samengevoegd onder merk "Historisch" — geen echte smaak om
@@ -405,8 +458,38 @@ function sellableVariants(data: TrackerData) {
   return data.variants.filter((variant) => !isImportBucket(variant.merk));
 }
 
-function firstVariantId(data: TrackerData) {
-  return sellableVariants(data)[0]?.id || "";
+function firstVariantId(data: TrackerData, productTypes?: ProductType[]) {
+  const variants = sellableVariants(data).filter((variant) => !productTypes || productTypes.includes(variant.productType));
+  return variants[0]?.id || "";
+}
+
+function saleProductCounts(data: TrackerData, items: DraftItem[]) {
+  return items.reduce(
+    (totals, item) => {
+      const variant = data.variants.find((entry) => entry.id === item.variantId);
+      if (isVapeVariant(variant)) totals.vapes += item.aantal;
+      else totals.snus += item.aantal;
+      return totals;
+    },
+    { snus: 0, vapes: 0 }
+  );
+}
+
+function standardSalePrice(data: TrackerData, items: DraftItem[], options?: { rolMode?: boolean; mixMode?: boolean; rolAantal?: number }) {
+  const counts = saleProductCounts(data, items);
+  if (options?.mixMode) return mixPrice(data) * (options.rolAantal ?? 1);
+  const snusPrice = options?.rolMode ? priceFor(data, BAKJES_PER_ROL) * Math.round(counts.snus / BAKJES_PER_ROL) : priceFor(data, counts.snus);
+  return snusPrice + vapePriceFor(counts.vapes);
+}
+
+function fixedCustomerSalePrice(data: TrackerData, items: DraftItem[], options?: { rolMode?: boolean }) {
+  const counts = saleProductCounts(data, items);
+  const snusPrice = options?.rolMode
+    ? (FIXED_CUSTOMER_PRICES[BAKJES_PER_ROL] ?? 40) * Math.round(counts.snus / BAKJES_PER_ROL)
+    : counts.snus > 0
+      ? FIXED_CUSTOMER_PRICES[counts.snus] ?? counts.snus * 5
+      : 0;
+  return snusPrice + vapePriceFor(counts.vapes);
 }
 
 function paymentButtonClass(current: PaymentMethod, value: PaymentMethod) {
@@ -416,7 +499,7 @@ function paymentButtonClass(current: PaymentMethod, value: PaymentMethod) {
 
 function debtDescription(debt: TrackerData["debts"][number]) {
   if (!debt.sale) return "Handmatig toegevoegd";
-  const items = debt.sale.items.map((item) => `${item.merk} ${item.smaak} (${item.aantal}x)`).join(", ");
+  const items = debt.sale.items.map((item) => saleItemLabel(item)).join(", ");
   return debt.sale.kind === SaleKind.MIX ? `Mix rol: ${items}` : items;
 }
 
@@ -813,7 +896,7 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
       </aside>
 
       <main className="shell">
-        {tab === "overzicht" ? <Overview data={data} metrics={metrics} analytics={analytics} /> : null}
+        {tab === "overzicht" ? <Overview data={data} metrics={metrics} analytics={analytics} onNavigate={navigate} /> : null}
         {tab === "inkoop" ? <PurchaseView data={data} /> : null}
         {tab === "verkoop" ? <SalesView data={data} /> : null}
         {tab === "voorraad" ? <StockView data={data} /> : null}
@@ -843,7 +926,7 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
   );
 }
 
-function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Record<string, number>; analytics: AnalyticsSummary }) {
+function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData; metrics: Record<string, number>; analytics: AnalyticsSummary; onNavigate: (tab: Tab) => void }) {
   const [period, setPeriod] = useState<OverviewPeriod>("alles");
   const [section, setSection] = useState<OverviewSection>("dashboard");
   const [weekOffset, setWeekOffset] = useState(0);
@@ -878,6 +961,9 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
   const margin = filteredStats.omzet > 0 ? (filteredStats.winst / filteredStats.omzet) * 100 : 0;
   const previousStats = previousBounds ? sumDays(analytics.days, previousBounds) : null;
   const voorraadWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
+  const openDebts = data.debts.filter((debt) => !debt.betaald);
+  const openPof = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
+  const openPofPeople = new Set(openDebts.map((debt) => debt.naam)).size;
   const periodTitle = period === "week" && adminPeriod ? `periode ${adminPeriod.weekNumber}` : periodLabel(period);
   const periodSub = period === "alles" ? "vanaf 17 april 2026" : undefined;
 
@@ -917,7 +1003,7 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
           </button>
         </div>
       ) : null}
-      <div className="metric-grid">
+      <div className="metric-grid kpis">
         <Metric
           label={`Omzet (${periodTitle})`}
           value={euro(filteredStats.omzet)}
@@ -933,12 +1019,32 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
         />
         <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
         <Metric
-          label="Bakjes verkocht"
+          label="Stuks verkocht"
           value={String(filteredStats.stuks)}
           delta={previousStats ? { current: filteredStats.stuks, previous: previousStats.stuks } : undefined}
           sub={previousStats && previousBounds ? `vs ${previousStats.stuks} ${previousBounds.label}` : undefined}
         />
         <Metric label="Voorraad (stuks)" value={String(metrics.voorraad)} sub={`${euro(voorraadWaarde)} inkoop`} />
+        <Metric
+          label="Openstaande pof"
+          value={euro(openPof)}
+          tone={openPof > 0 ? "bad" : "good"}
+          sub={openPofPeople ? `${openPofPeople} ${openPofPeople === 1 ? "persoon" : "personen"}` : "niemand open"}
+        />
+      </div>
+      <div className="quick-actions">
+        <button type="button" className="qa-primary" onClick={() => onNavigate("verkoop")}>
+          <IconPlus size={16} /><span>Nieuwe verkoop</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("inkoop")}>
+          <IconCart size={16} /><span>Inkoop</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("voorraad")}>
+          <IconPackage size={16} /><span>Voorraad</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("poflijst")}>
+          <IconWallet size={16} /><span>Poflijst</span>
+        </button>
       </div>
       <SubNav
         value={section}
@@ -950,24 +1056,31 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
         onChange={(value) => setSection(value as OverviewSection)}
       />
       {section === "dashboard" ? (
-        <div className="dashboard-grid">
-          <div className="dashboard-main">
-            <BusinessPulse data={data} />
-            <TrendChart data={data} />
+        <>
+          <AiInsights />
+          <div className="dashboard-grid">
+            <div className="dashboard-main">
+              <BusinessPulse data={data} />
+              <TrendChart data={data} />
+            </div>
+            <div className="dashboard-side">
+              <Insights data={data} />
+              <WeekdayPanel data={data} />
+              <ClearancePanel data={data} />
+            </div>
           </div>
-          <div className="dashboard-side">
-            <Insights data={data} />
-            <TopFlop analytics={analytics} period={period} />
-          </div>
-        </div>
+          <ForecastPanel data={data} />
+          <TopFlop analytics={analytics} period={period} />
+        </>
       ) : null}
       {section === "recent" ? <RecentSalesPreview sales={data.sales.slice(0, 30)} /> : null}
       {section === "producten" ? (
         <Panel title="Prestaties per merk / smaak">
           <DataTable
-            headers={["Merk", "Smaak", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
-            align={[false, false, true, true, true, true, true]}
+            headers={["Product", "Merk", "Smaak / model", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
+            align={[false, false, false, true, true, true, true, true]}
             rows={data.variants.map((variant) => [
+              productTypeLabel(variant.productType),
               variant.merk,
               variant.smaak,
               `${euro(variant.inkoopPrijs)}/st`,
@@ -983,62 +1096,186 @@ function Overview({ data, metrics, analytics }: { data: TrackerData; metrics: Re
   );
 }
 
-type DayPoint = { day: Date; omzet: number; winst: number; stuks: number };
-
-function dailySeries(data: TrackerData, days: number): DayPoint[] {
-  const today = normalizeDate(new Date());
-  return Array.from({ length: days }, (_, index) => {
-    const day = addDays(today, index - (days - 1));
-    const next = addDays(day, 1);
-    const stats = saleStats(data, (sale) => saleInBounds(sale, { start: day, end: next }));
-    return { day, omzet: stats.omzet, winst: stats.winst, stuks: stats.stuks };
-  });
+function AiAnswer({ state }: { state: AiResult }) {
+  if (!state) return null;
+  if (!state.ok) return <p className="form-error" role="alert">{state.error}</p>;
+  return (
+    <div className="ai-answer" role="status">
+      {state.text.split("\n").map((line, index) => (line.trim() ? <p key={index}>{line}</p> : null))}
+    </div>
+  );
 }
 
-function distinctSalesDays(data: TrackerData): number {
-  return new Set(data.sales.map((sale) => dateKey(normalizeDate(new Date(sale.datum))))).size;
+// AI-assistent: vraag-antwoord op de echte cijfers + on-demand samenvatting/advies/signalen.
+// Alles loopt via server actions (key blijft server-side); zonder key tonen de panelen een melding.
+function AiInsights() {
+  const [askState, askAction] = useActionState(askInsights, null);
+  const [sumState, sumAction] = useActionState(weeklySummary, null);
+  const [advState, advAction] = useActionState(promoAdvice, null);
+  const [anoState, anoAction] = useActionState(anomalyScan, null);
+  const [question, setQuestion] = useState("");
+  const chips = [
+    "Wat was mijn beste week?",
+    "Welke smaak loopt achteruit?",
+    "Hoeveel marge maak ik gemiddeld?",
+    "Op welke dag kan ik het best een actie doen?"
+  ];
+  return (
+    <Panel title="AI-assistent">
+      <form action={askAction} className="stack">
+        <div className="ai-input-row">
+          <input name="vraag" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Vraag iets over je cijfers…" maxLength={500} autoComplete="off" />
+          <SubmitButton pendingLabel="Denkt na…">Vraag</SubmitButton>
+        </div>
+        <div className="ai-chips">
+          {chips.map((chip) => (
+            <button type="button" key={chip} className="ai-chip" onClick={() => setQuestion(chip)}>{chip}</button>
+          ))}
+        </div>
+        <AiAnswer state={askState} />
+      </form>
+      <div className="ai-actions">
+        <form action={sumAction}><SubmitButton className="" pendingLabel="…">Weeksamenvatting</SubmitButton></form>
+        <form action={advAction}><SubmitButton className="" pendingLabel="…">Promo-advies</SubmitButton></form>
+        <form action={anoAction}><SubmitButton className="" pendingLabel="…">Signalen</SubmitButton></form>
+      </div>
+      <AiAnswer state={sumState} />
+      <AiAnswer state={advState} />
+      <AiAnswer state={anoState} />
+    </Panel>
+  );
 }
 
-function variantVelocity(data: TrackerData, days: number): Map<string, number> {
-  const today = normalizeDate(new Date());
-  const start = addDays(today, -(days - 1));
-  const end = addDays(today, 1);
-  const sold = new Map<string, number>();
-  for (const sale of data.sales) {
-    const date = normalizeDate(new Date(sale.datum));
-    if (date < start || date >= end) continue;
-    for (const item of sale.items) sold.set(item.variantId, (sold.get(item.variantId) ?? 0) + item.aantal);
-  }
-  const velocity = new Map<string, number>();
-  for (const [id, qty] of sold) velocity.set(id, qty / days);
-  return velocity;
+function ClearancePanel({ data }: { data: TrackerData }) {
+  const items = useMemo(() => clearanceSuggestions(data), [data]);
+  if (items.length === 0) return null;
+  const totaal = items.reduce((sum, item) => sum + item.waarde, 0);
+  return (
+    <Panel title="Clearance — traag lopend">
+      <p className="muted forecast-note">Veel voorraad, weinig verkoop — samen {euro(totaal)} aan stilstaande inkoop. Ideaal voor een wisselende actie of mix-bundel.</p>
+      <div className="restock-list">
+        {items.map((item) => (
+          <div className="restock-row" key={item.variant.id}>
+            <div className="restock-head">
+              <span className="restock-name">
+                <span className={`brand-badge brand-${brandClass(item.variant.merk)}`}>{item.variant.merk}</span>
+                <span className="restock-flavor">{item.variant.smaak}</span>
+              </span>
+              <strong className="muted">{euro(item.waarde)}</strong>
+            </div>
+            <div className="restock-meta">{item.variant.voorraad} op voorraad · {item.sold30} verkocht (30d)</div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
 }
 
-type RestockItem = { variant: TrackerData["variants"][number]; perDay: number; daysLeft: number };
-
-function restockSuggestions(data: TrackerData, days = 30): RestockItem[] {
-  const velocity = variantVelocity(data, days);
-  const items: RestockItem[] = [];
-  for (const variant of data.variants) {
-    if (isImportBucket(variant.merk)) continue;
-    const perDay = velocity.get(variant.id) ?? 0;
-    if (perDay <= 0) continue;
-    const daysLeft = variant.voorraad / perDay;
-    if (daysLeft <= 10) items.push({ variant, perDay, daysLeft });
-  }
-  return items.sort((a, b) => a.daysLeft - b.daysLeft);
+function ForecastPanel({ data }: { data: TrackerData }) {
+  const [metric, setMetric] = useState<SeriesMetric>("omzet");
+  const rows = useMemo(() => forecastRows(data, metric), [data, metric]);
+  if (data.sales.length === 0) return null;
+  const labels = { omzet: "Omzet", winst: "Winst", stuks: "Stuks" } as const;
+  const fmt = (value: number) => (metric === "stuks" ? `${Math.round(value)}` : euro(value));
+  return (
+    <Panel title="Prognose & trend">
+      <div className="segmented chart-toggle">
+        {(["omzet", "winst", "stuks"] as const).map((key) => (
+          <button key={key} type="button" className={metric === key ? "active" : ""} onClick={() => setMetric(key)}>
+            {labels[key]}
+          </button>
+        ))}
+      </div>
+      <p className="muted forecast-note">Verwachting op het tempo van de laatste 4 weken; trend = afgelopen periode vs. de periode ervoor.</p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Periode</th>
+              <th className="amount">Vorige</th>
+              <th className="amount">Afgelopen</th>
+              <th className="amount">Trend</th>
+              <th className="amount">Verwacht komend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const dir = row.trendPct > 0 ? "up" : row.trendPct < 0 ? "down" : "flat";
+              const arrow = row.trendPct > 0 ? "▲" : row.trendPct < 0 ? "▼" : "•";
+              return (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  <td className="amount">{fmt(row.vorige)}</td>
+                  <td className="amount">{fmt(row.afgelopen)}</td>
+                  <td className="amount"><span className={`delta-chip ${dir}`}>{arrow} {Math.abs(row.trendPct).toFixed(0)}%</span></td>
+                  <td className="amount"><strong>{fmt(row.verwacht)}</strong></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
 }
 
-type Forecast = { enough: boolean; daysOfData: number; perDay: number; next7: number; trendPct: number };
+function WeekdayPanel({ data }: { data: TrackerData }) {
+  const [mode, setMode] = useState<"gemiddeld" | "totaal">("gemiddeld");
+  const rows = useMemo(() => weekdayStats(data), [data]);
+  if (data.sales.length === 0) return null;
+  const valueOf = (row: (typeof rows)[number]) => (mode === "gemiddeld" ? row.gemiddeld : row.omzet);
+  const max = Math.max(1, ...rows.map(valueOf));
+  const best = rows.reduce((top, row) => (valueOf(row) > valueOf(top) ? row : top), rows[0]);
+  return (
+    <Panel title="Beste verkoopdagen">
+      <div className="segmented chart-toggle">
+        <button type="button" className={mode === "gemiddeld" ? "active" : ""} onClick={() => setMode("gemiddeld")}>Gemiddeld</button>
+        <button type="button" className={mode === "totaal" ? "active" : ""} onClick={() => setMode("totaal")}>Totaal</button>
+      </div>
+      <div className="weekday-list">
+        {rows.map((row) => (
+          <div className={`weekday-row${row.name === best.name && valueOf(row) > 0 ? " best" : ""}`} key={row.name}>
+            <span className="weekday-name">{row.name}</span>
+            <span className="weekday-bar"><span style={{ width: `${Math.round((valueOf(row) / max) * 100)}%` }} /></span>
+            <span className="weekday-val">{euro(valueOf(row))}</span>
+          </div>
+        ))}
+      </div>
+      <p className="muted forecast-note">{mode === "gemiddeld" ? "Gemiddelde omzet per keer dat die weekdag voorkwam." : "Totale omzet per weekdag over de hele historie."}</p>
+    </Panel>
+  );
+}
 
-function salesForecast(data: TrackerData): Forecast {
-  const daysOfData = distinctSalesDays(data);
-  const series = dailySeries(data, 14);
-  const last7 = series.slice(7).reduce((sum, day) => sum + day.omzet, 0);
-  const prev7 = series.slice(0, 7).reduce((sum, day) => sum + day.omzet, 0);
-  const perDay = last7 / 7;
-  const trendPct = prev7 > 0 ? ((last7 - prev7) / prev7) * 100 : 0;
-  return { enough: daysOfData >= 10, daysOfData, perDay, next7: perDay * 7, trendPct };
+function LoyaltyPanel({ data }: { data: TrackerData }) {
+  const cards = useMemo(() => loyaltyCards(data), [data]);
+  return (
+    <Panel title="Stempelkaarten">
+      {cards.length === 0 ? (
+        <p className="empty">Nog geen klanten met naam. Vul bij een verkoop een klantnaam in om te sparen — 10 bakjes = 1 gratis.</p>
+      ) : (
+        <div className="loyalty-list">
+          {cards.map((card) => (
+            <div className="loyalty-card" key={card.naam}>
+              <div className="loyalty-head">
+                <strong>{card.naam}</strong>
+                {card.outstanding > 0 ? (
+                  <span className="loyalty-reward">{card.outstanding}× gratis bakje</span>
+                ) : (
+                  <span className="muted">nog {STAMPS_PER_REWARD - card.progress} tot gratis</span>
+                )}
+              </div>
+              <div className="stamp-row" aria-label={`${card.progress} van ${STAMPS_PER_REWARD} stempels`}>
+                {Array.from({ length: STAMPS_PER_REWARD }, (_, index) => (
+                  <span key={index} className={`stamp${index < card.progress ? " on" : ""}`}>{index === STAMPS_PER_REWARD - 1 ? "★" : ""}</span>
+                ))}
+              </div>
+              <div className="loyalty-meta muted">{card.betaaldeStuks} gekocht · {card.gratisStuks} gratis gehad</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
 }
 
 function BusinessPulse({ data }: { data: TrackerData }) {
@@ -1130,29 +1367,38 @@ function Insights({ data }: { data: TrackerData }) {
 
   return (
     <Panel title="Inzichten">
-      <div className="metric-grid compact">
-        <Metric
-          label="Verwachte omzet (7 dagen)"
-          value={forecast.enough ? euro(forecast.next7) : "—"}
-          sub={forecast.enough ? `${trendArrow} ${Math.abs(forecast.trendPct).toFixed(0)}% vs. vorige week` : `Nog ${Math.max(1, 10 - forecast.daysOfData)} dag(en) data nodig`}
-          tone={forecast.enough ? (forecast.trendPct >= 0 ? "good" : "bad") : undefined}
-        />
-        <Metric label="Gem. omzet per dag" value={forecast.enough ? euro(forecast.perDay) : "—"} />
-        <Metric label="Aanvullen nodig" value={`${restock.length} ${restock.length === 1 ? "smaak" : "smaken"}`} tone={restock.length ? "bad" : "good"} />
+      <div className="insight-stats">
+        <div className="insight-stat">
+          <span className="lbl">Verwachte omzet · 7 dagen</span>
+          <span className="val">
+            <strong className={forecast.enough ? (forecast.trendPct >= 0 ? "green" : "red") : ""}>{forecast.enough ? euro(forecast.next7) : "—"}</strong>
+            <small>{forecast.enough ? `${trendArrow} ${Math.abs(forecast.trendPct).toFixed(0)}% vs. vorige week` : `nog ${Math.max(1, 10 - forecast.daysOfData)} dag(en) data nodig`}</small>
+          </span>
+        </div>
+        <div className="insight-stat">
+          <span className="lbl">Gem. omzet per dag</span>
+          <span className="val"><strong>{forecast.enough ? euro(forecast.perDay) : "—"}</strong></span>
+        </div>
+        <div className="insight-stat">
+          <span className="lbl">Aanvullen nodig</span>
+          <span className="val"><strong className={restock.length ? "red" : "green"}>{restock.length} {restock.length === 1 ? "smaak" : "smaken"}</strong></span>
+        </div>
       </div>
 
       {restock.length ? (
         <>
           <p className="section-eyebrow">Bijna op — aanvullen</p>
-          <div className="debt-list">
+          <div className="restock-list">
             {restock.slice(0, 6).map((item) => (
-              <div className="debt-row" key={item.variant.id}>
-                <span>
-                  <span className={`brand-badge brand-${brandClass(item.variant.merk)}`}>{item.variant.merk}</span> {item.variant.smaak}
-                </span>
-                <span className="muted">≈ {item.perDay.toFixed(1)}/dag</span>
-                <span>{item.variant.voorraad} op voorraad</span>
-                <strong className={item.daysLeft < 4 ? "danger-text" : ""}>{item.daysLeft < 1 ? "bijna op" : `~${Math.round(item.daysLeft)} dagen`}</strong>
+              <div className="restock-row" key={item.variant.id}>
+                <div className="restock-head">
+                  <span className="restock-name">
+                    <span className={`brand-badge brand-${brandClass(item.variant.merk)}`}>{item.variant.merk}</span>
+                    <span className="restock-flavor">{item.variant.smaak}</span>
+                  </span>
+                  <strong className={item.daysLeft < 4 ? "danger-text" : "muted"}>{item.daysLeft < 1 ? "bijna op" : `~${Math.round(item.daysLeft)} dgn`}</strong>
+                </div>
+                <div className="restock-meta">{item.variant.voorraad} op voorraad · ≈ {item.perDay.toFixed(1)}/dag</div>
               </div>
             ))}
           </div>
@@ -1162,18 +1408,20 @@ function Insights({ data }: { data: TrackerData }) {
       )}
 
       {topFlavor || busiestDay ? (
-        <ul className="insight-list">
+        <div className="insight-stats">
           {topFlavor ? (
-            <li>
-              <IconTag size={15} /> Best verkocht (30 dagen): <strong>{topFlavor.name}</strong> — {euro(topFlavor.omzet)}
-            </li>
+            <div className="insight-stat">
+              <span className="lbl">Best verkocht · 30 dgn</span>
+              <span className="val"><strong>{topFlavor.name}</strong><small>{euro(topFlavor.omzet)}</small></span>
+            </div>
           ) : null}
           {busiestDay ? (
-            <li>
-              <IconChart size={15} /> Drukste dag: <strong>{busiestDay}</strong>
-            </li>
+            <div className="insight-stat">
+              <span className="lbl">Drukste dag</span>
+              <span className="val"><strong className="cap">{busiestDay}</strong></span>
+            </div>
           ) : null}
-        </ul>
+        </div>
       ) : null}
     </Panel>
   );
@@ -1270,13 +1518,38 @@ function TopFlopCard({ title, item, tone }: { title: string; item: { label: stri
 }
 
 function PurchaseView({ data }: { data: TrackerData }) {
-  const [rows, setRows] = useState<PurchaseDraft[]>([{ merk: "", smaak: "", rollen: 1, losse: 0, prijsPerRol: "" }]);
+  const emptyPurchaseRow = (productType: ProductType = ProductType.SNUS): PurchaseDraft => ({
+    productType,
+    merk: productType === ProductType.VAPE ? "Vape" : "",
+    smaak: "",
+    rollen: productType === ProductType.SNUS ? 1 : 0,
+    losse: 0,
+    prijsPerRol: "",
+    stuks: productType === ProductType.VAPE ? 1 : 0,
+    prijsPerStuk: ""
+  });
+  const [rows, setRows] = useState<PurchaseDraft[]>([emptyPurchaseRow()]);
   const [purchaseState, purchaseAction] = useActionState(addPurchases, null);
-  const brands = useMemo(() => uniqueValues([...FIXED_BRANDS, ...data.variants.map((variant) => variant.merk)]), [data.variants]);
-  const totalRollen = rows.reduce((sum, row) => sum + row.rollen, 0);
-  const totalBakjes = rows.reduce((sum, row) => sum + row.rollen * BAKJES_PER_ROL + row.losse, 0);
-  const totalEuro = rows.reduce((sum, row) => sum + (parseMoneyDraft(row.prijsPerRol) / BAKJES_PER_ROL) * (row.rollen * BAKJES_PER_ROL + row.losse), 0);
-  const filledRows = rows.filter((row) => row.merk.trim() && row.smaak.trim() && (row.rollen > 0 || row.losse > 0) && parseMoneyDraft(row.prijsPerRol) > 0);
+  const brands = useMemo(
+    () => ({
+      [ProductType.SNUS]: uniqueValues([...FIXED_BRANDS, ...data.variants.filter((variant) => variant.productType === ProductType.SNUS).map((variant) => variant.merk)]),
+      [ProductType.VAPE]: uniqueValues([...FIXED_VAPE_BRANDS, ...data.variants.filter((variant) => variant.productType === ProductType.VAPE).map((variant) => variant.merk)])
+    }),
+    [data.variants]
+  );
+  const totalRollen = rows.reduce((sum, row) => sum + (row.productType === ProductType.SNUS ? row.rollen : 0), 0);
+  const totalBakjes = rows.reduce((sum, row) => sum + (row.productType === ProductType.SNUS ? row.rollen * BAKJES_PER_ROL + row.losse : 0), 0);
+  const totalVapes = rows.reduce((sum, row) => sum + (row.productType === ProductType.VAPE ? row.stuks : 0), 0);
+  const rowTotal = (row: PurchaseDraft) =>
+    row.productType === ProductType.VAPE
+      ? parseMoneyDraft(row.prijsPerStuk) * row.stuks
+      : (parseMoneyDraft(row.prijsPerRol) / BAKJES_PER_ROL) * (row.rollen * BAKJES_PER_ROL + row.losse);
+  const totalEuro = rows.reduce((sum, row) => sum + rowTotal(row), 0);
+  const filledRows = rows.filter((row) =>
+    row.merk.trim() &&
+    row.smaak.trim() &&
+    (row.productType === ProductType.VAPE ? row.stuks > 0 && parseMoneyDraft(row.prijsPerStuk) > 0 : (row.rollen > 0 || row.losse > 0) && parseMoneyDraft(row.prijsPerRol) > 0)
+  );
 
   function setRow(index: number, patch: Partial<PurchaseDraft>) {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -1288,27 +1561,42 @@ function PurchaseView({ data }: { data: TrackerData }) {
       <Panel title="Inkoop toevoegen">
         <form action={purchaseAction} className="stack">
           <input type="hidden" name="rows" value={JSON.stringify(rows)} />
-          <datalist id="purchase-brands">{brands.map((brand) => <option key={brand} value={brand} />)}</datalist>
           <div className="purchase-rows">
             {rows.map((row, index) => {
               const pricePerRoll = parseMoneyDraft(row.prijsPerRol);
               const pricePerPiece = pricePerRoll / BAKJES_PER_ROL;
-              const flavorOptions = purchaseFlavorOptions(data, row.merk);
+              const vapeUnitPrice = parseMoneyDraft(row.prijsPerStuk);
+              const brandListId = `purchase-brands-${index}`;
+              const flavorOptions = purchaseFlavorOptions(data, row.productType, row.merk);
               const flavorListId = `purchase-flavors-${index}`;
               return (
                 <div className="purchase-row" key={index}>
                   <label>
+                    Product
+                    <select
+                      value={row.productType}
+                      onChange={(event) => {
+                        const productType = event.target.value as ProductType;
+                        setRow(index, { ...emptyPurchaseRow(productType), smaak: row.smaak });
+                      }}
+                    >
+                      <option value={ProductType.SNUS}>Snus</option>
+                      <option value={ProductType.VAPE}>Vape</option>
+                    </select>
+                  </label>
+                  <label>
                     Merk
                     <input
-                      list="purchase-brands"
+                      list={brandListId}
                       maxLength={80}
                       required
                       value={row.merk}
                       onChange={(event) => setRow(index, { merk: event.target.value })}
                     />
+                    <datalist id={brandListId}>{brands[row.productType].map((brand) => <option key={brand} value={brand} />)}</datalist>
                   </label>
                   <label>
-                    Smaak
+                    {row.productType === ProductType.VAPE ? "Model / smaak" : "Smaak"}
                     <input
                       list={flavorListId}
                       maxLength={120}
@@ -1318,46 +1606,48 @@ function PurchaseView({ data }: { data: TrackerData }) {
                     />
                     <datalist id={flavorListId}>{flavorOptions.map((flavor) => <option key={flavor} value={flavor} />)}</datalist>
                   </label>
-                  <label>
-                    Rollen
-                    <span className="roll-control">
-                      <button type="button" onClick={() => setRow(index, { rollen: Math.max(0, row.rollen - 1) })}>-</button>
-                      <input
-                        min={0}
-                        required
-                        type="number"
-                        value={row.rollen}
-                        onChange={(event) => setRow(index, { rollen: Math.max(0, Number(event.target.value) || 0) })}
-                      />
-                      <button type="button" onClick={() => setRow(index, { rollen: row.rollen + 1 })}>+</button>
-                    </span>
-                  </label>
-                  <label>
-                    Losse pakjes
-                    <span className="roll-control">
-                      <button type="button" onClick={() => setRow(index, { losse: Math.max(0, row.losse - 1) })}>-</button>
-                      <input
-                        min={0}
-                        type="number"
-                        value={row.losse}
-                        onChange={(event) => setRow(index, { losse: Math.max(0, Number(event.target.value) || 0) })}
-                      />
-                      <button type="button" onClick={() => setRow(index, { losse: row.losse + 1 })}>+</button>
-                    </span>
-                  </label>
-                  <label>
-                    Prijs per rol
-                    <input
-                      inputMode="decimal"
-                      placeholder="16,25"
-                      required
-                      value={row.prijsPerRol}
-                      onChange={(event) => setRow(index, { prijsPerRol: event.target.value })}
-                    />
-                  </label>
+                  {row.productType === ProductType.SNUS ? (
+                    <>
+                      <label>
+                        Rollen
+                        <span className="roll-control">
+                          <button type="button" onClick={() => setRow(index, { rollen: Math.max(0, row.rollen - 1) })}>-</button>
+                          <input min={0} required type="number" value={row.rollen} onChange={(event) => setRow(index, { rollen: Math.max(0, Number(event.target.value) || 0) })} />
+                          <button type="button" onClick={() => setRow(index, { rollen: row.rollen + 1 })}>+</button>
+                        </span>
+                      </label>
+                      <label>
+                        Losse pakjes
+                        <span className="roll-control">
+                          <button type="button" onClick={() => setRow(index, { losse: Math.max(0, row.losse - 1) })}>-</button>
+                          <input min={0} type="number" value={row.losse} onChange={(event) => setRow(index, { losse: Math.max(0, Number(event.target.value) || 0) })} />
+                          <button type="button" onClick={() => setRow(index, { losse: row.losse + 1 })}>+</button>
+                        </span>
+                      </label>
+                      <label>
+                        Prijs per rol
+                        <input inputMode="decimal" placeholder="16,25" required value={row.prijsPerRol} onChange={(event) => setRow(index, { prijsPerRol: event.target.value })} />
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <label>
+                        Aantal vapes
+                        <span className="roll-control">
+                          <button type="button" onClick={() => setRow(index, { stuks: Math.max(0, row.stuks - 1) })}>-</button>
+                          <input min={0} required type="number" value={row.stuks} onChange={(event) => setRow(index, { stuks: Math.max(0, Number(event.target.value) || 0) })} />
+                          <button type="button" onClick={() => setRow(index, { stuks: row.stuks + 1 })}>+</button>
+                        </span>
+                      </label>
+                      <label>
+                        Inkoop per vape
+                        <input inputMode="decimal" placeholder="6,50" required value={row.prijsPerStuk} onChange={(event) => setRow(index, { prijsPerStuk: event.target.value })} />
+                      </label>
+                    </>
+                  )}
                   <div className="purchase-chip">
-                    <span>Prijs/bakje</span>
-                    <strong>{pricePerPiece > 0 ? euro(pricePerPiece) : "-"}</strong>
+                    <span>{row.productType === ProductType.VAPE ? "Prijs/vape" : "Prijs/bakje"}</span>
+                    <strong>{row.productType === ProductType.VAPE ? (vapeUnitPrice > 0 ? euro(vapeUnitPrice) : "-") : pricePerPiece > 0 ? euro(pricePerPiece) : "-"}</strong>
                   </div>
                   <button
                     className="danger"
@@ -1369,17 +1659,21 @@ function PurchaseView({ data }: { data: TrackerData }) {
                   </button>
                 </div>
               );
-            })}
+            })}  
           </div>
           <div className="purchase-total">
-            <span>{filledRows.length} smaken</span>
+            <span>{filledRows.length} regels</span>
             <span>{totalRollen} rollen</span>
             <span>{totalBakjes} bakjes</span>
+            <span>{totalVapes} vapes</span>
             <strong>{euro(totalEuro)}</strong>
           </div>
           <div className="button-row">
-            <button type="button" onClick={() => setRows((current) => [...current, { merk: "", smaak: "", rollen: 1, losse: 0, prijsPerRol: "" }])}>
-              Rij toevoegen
+            <button type="button" onClick={() => setRows((current) => [...current, emptyPurchaseRow(ProductType.SNUS)])}>
+              Snusrij toevoegen
+            </button>
+            <button type="button" onClick={() => setRows((current) => [...current, emptyPurchaseRow(ProductType.VAPE)])}>
+              Vaperij toevoegen
             </button>
             <SubmitButton>Inkoop verwerken</SubmitButton>
           </div>
@@ -1392,10 +1686,11 @@ function PurchaseView({ data }: { data: TrackerData }) {
             <thead>
               <tr>
                 <th>Datum</th>
+                <th>Product</th>
                 <th>Merk</th>
-                <th>Smaak</th>
+                <th>Smaak / model</th>
                 <th className="amount">Aantal</th>
-                <th className="amount">Prijs/bakje</th>
+                <th className="amount">Prijs/stuk</th>
                 <th className="amount">Totaal</th>
                 <th className="amount">Gem. inkoop</th>
                 <th />
@@ -1403,13 +1698,14 @@ function PurchaseView({ data }: { data: TrackerData }) {
             </thead>
             <tbody>
               {data.purchases.map((purchase) => {
-                const variant = data.variants.find((item) => item.merk === purchase.merk && item.smaak === purchase.smaak);
+                const variant = data.variants.find((item) => item.productType === purchase.productType && item.merk === purchase.merk && item.smaak === purchase.smaak);
                 return (
                   <tr key={purchase.id}>
                     <td>{dateNl(purchase.datum)}</td>
+                    <td>{productTypeLabel(purchase.productType)}</td>
                     <td>{purchase.merk}</td>
                     <td>{purchase.smaak}</td>
-                    <td className="amount">{purchaseQtyLabel(purchase)}</td>
+                    <td className="amount">{purchaseUnitsLabel(purchase)}</td>
                     <td className="amount">{euro(purchase.prijsPerStuk)}</td>
                     <td className="amount">{euro(purchase.prijsPerStuk * purchase.aantal)}</td>
                     <td className="amount">{variant ? euro(variant.inkoopPrijs) : "-"}</td>
@@ -1451,6 +1747,10 @@ function SalesView({ data }: { data: TrackerData }) {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const editingSale = editingSaleId ? data.sales.find((sale) => sale.id === editingSaleId) : null;
   const [saleState, saleAction] = useActionState(editingSale ? updateSale : addMultiSale, null);
+  const knownNames = useMemo(
+    () => uniqueValues([...data.sales.map((sale) => sale.klantNaam || ""), ...data.debts.map((debt) => debt.naam)]).filter(Boolean),
+    [data]
+  );
 
   const isRol = mode === "rol";
   const targetQty = mode === "mix" ? 10 * rolAantal : saleQty;
@@ -1460,7 +1760,9 @@ function SalesView({ data }: { data: TrackerData }) {
   const totalRollen = isRol ? totalQty : 0;
   const totalStuks = isRol ? totalRollen * BAKJES_PER_ROL : totalQty;
   const itemsForSubmit = isRol ? activeItems.map((item) => ({ ...item, aantal: item.aantal * BAKJES_PER_ROL })) : activeItems;
-  const rolUnitPrice = priceFor(data, BAKJES_PER_ROL);
+  const productCounts = saleProductCounts(data, itemsForSubmit);
+  const deliveryIsFree = delivery && productCounts.vapes >= 2;
+  const deliveryCost = delivery ? (deliveryIsFree ? 0 : DELIVERY_PRICE) : 0;
   const customAmount = Number(customPrice.replace(",", ".")) || 0;
   const base =
     mode === "mix"
@@ -1469,14 +1771,14 @@ function SalesView({ data }: { data: TrackerData }) {
         ? priceMode === "aangepast"
           ? customAmount
           : priceMode === "vasteKlant"
-            ? (FIXED_CUSTOMER_PRICES[BAKJES_PER_ROL] ?? 40) * totalRollen
-            : rolUnitPrice * totalRollen
+            ? fixedCustomerSalePrice(data, itemsForSubmit, { rolMode: true })
+            : standardSalePrice(data, itemsForSubmit, { rolMode: true })
         : priceMode === "aangepast"
           ? customAmount
           : priceMode === "vasteKlant"
-            ? FIXED_CUSTOMER_PRICES[targetQty] ?? targetQty * 5
-            : priceFor(data, targetQty);
-  const total = base + (delivery ? DELIVERY_PRICE : 0);
+            ? fixedCustomerSalePrice(data, itemsForSubmit)
+            : standardSalePrice(data, itemsForSubmit);
+  const total = base + deliveryCost;
   const saleKind = mode === "mix" ? SaleKind.MIX : mode === "multi" || isRol ? SaleKind.MULTI : SaleKind.NORMAL;
   const hasExactQty = mode === "normal" || isRol || totalQty === targetQty;
 
@@ -1520,7 +1822,26 @@ function SalesView({ data }: { data: TrackerData }) {
     if (nextMode === "normal") {
       setNormalItem((current) => ({ variantId: current.variantId || firstVariantId(data), aantal: 1 }));
     } else {
-      setItems([{ variantId: firstVariantId(data), aantal: 1 }]);
+      setItems([{ variantId: firstVariantId(data, nextMode === "rol" || nextMode === "mix" ? [ProductType.SNUS] : undefined), aantal: 1 }]);
+    }
+  }
+
+  function selectVapeOption(quantity: number) {
+    const vapeId = firstVariantId(data, [ProductType.VAPE]);
+    setMode(quantity === 1 ? "normal" : "multi");
+    setSaleQty(quantity);
+    setPriceMode("standaard");
+    setDelivery(quantity >= 2);
+    setCustomPrice("");
+    setCustomerName("");
+    setEditingSaleId(null);
+    setRolAantal(1);
+    setSplitMode(false);
+    setSplitAmounts({ [PaymentMethod.CASH]: "", [PaymentMethod.TIKKIE]: "", [PaymentMethod.POF]: "" });
+    if (quantity === 1) {
+      setNormalItem({ variantId: vapeId, aantal: 1 });
+    } else {
+      setItems([{ variantId: vapeId, aantal: quantity }]);
     }
   }
 
@@ -1553,9 +1874,9 @@ function SalesView({ data }: { data: TrackerData }) {
       nextMode === "mix"
         ? mixPrice(data) * (sale.rolAantal ?? Math.max(1, Math.round(qty / BAKJES_PER_ROL)))
         : nextMode === "rol"
-          ? priceFor(data, BAKJES_PER_ROL) * rollen
-          : priceFor(data, qty);
-    const fixedPrice = nextMode === "rol" ? (FIXED_CUSTOMER_PRICES[BAKJES_PER_ROL] ?? 40) * rollen : FIXED_CUSTOMER_PRICES[qty] ?? qty * 5;
+          ? standardSalePrice(data, draftItems, { rolMode: true })
+          : standardSalePrice(data, draftItems);
+    const fixedPrice = nextMode === "rol" ? fixedCustomerSalePrice(data, draftItems, { rolMode: true }) : fixedCustomerSalePrice(data, draftItems);
 
     setSection("nieuw");
     setEditingSaleId(sale.id);
@@ -1604,6 +1925,7 @@ function SalesView({ data }: { data: TrackerData }) {
         value={section}
         items={[
           ["nieuw", "Nieuwe verkoop"],
+          ["weggeven", "Weggeven"],
           ["concepten", `Concepten${data.concepts.length ? ` (${data.concepts.length})` : ""}`],
           ["historie", "Historie"]
         ]}
@@ -1631,6 +1953,17 @@ function SalesView({ data }: { data: TrackerData }) {
               <span className="qty">Mix rol</span>
               <span className="prijs">{euro(mixPrice(data))}</span>
             </button>
+            {[1, 2, 3].map((quantity) => {
+              const vapeId = firstVariantId(data, [ProductType.VAPE]);
+              const selectedVariant = mode === "normal" ? normalItem.variantId : items[0]?.variantId;
+              const selected = Boolean(vapeId) && selectedVariant === vapeId && saleQty === quantity;
+              return (
+                <button className={`price-btn${selected ? " selected" : ""}`} key={`vape-${quantity}`} onClick={() => selectVapeOption(quantity)} type="button" disabled={!vapeId}>
+                  <span className="qty">{quantity} vape{quantity === 1 ? "" : "s"}</span>
+                  <span className="prijs">{euro(vapePriceFor(quantity))}</span>
+                </button>
+              );
+            })}
           </div>
         </Panel>
         <Panel title={editingSale ? "Verkoop bewerken" : "Verkoop registreren"}>
@@ -1640,7 +1973,7 @@ function SalesView({ data }: { data: TrackerData }) {
           <input type="hidden" name="items" value={JSON.stringify(itemsForSubmit)} />
           <input type="hidden" name="bedrag" value={total.toFixed(2)} />
           <input type="hidden" name="basisBedrag" value={base.toFixed(2)} />
-          <input type="hidden" name="bezorgkosten" value={delivery ? DELIVERY_PRICE.toFixed(2) : "0"} />
+          <input type="hidden" name="bezorgkosten" value={deliveryCost.toFixed(2)} />
           <input type="hidden" name="rolAantal" value={mode === "mix" ? rolAantal : isRol ? totalRollen : ""} />
           <input type="hidden" name="betaalwijze" value={primaryMethod} />
           <input type="hidden" name="payments" value={JSON.stringify(paymentsForSubmit.map((entry) => ({ method: entry.method, bedrag: entry.bedrag })))} />
@@ -1655,10 +1988,10 @@ function SalesView({ data }: { data: TrackerData }) {
           ) : (
             <div className="stack">
               <div className="mix-builder">
-                <h3>{mode === "mix" ? `Stel je mix rol samen (${targetQty} stuks)` : isRol ? "Kies je rollen (1 rol = 10 bakjes)" : `Kies je smaken (${targetQty} stuks)`}</h3>
+                <h3>{mode === "mix" ? `Stel je mix rol samen (${targetQty} stuks)` : isRol ? "Kies je rollen (1 rol = 10 bakjes)" : `Kies producten (${targetQty} stuks)`}</h3>
               {items.map((item, index) => (
                 <div className="sale-line" key={index}>
-                  <SaleItemEditor data={data} item={item} onChange={(next) => setItem(index, next)} showCount countLabel={isRol ? "Rollen" : "Aantal"} />
+                  <SaleItemEditor data={data} item={item} onChange={(next) => setItem(index, next)} showCount countLabel={isRol ? "Rollen" : "Aantal"} productTypes={isRol || mode === "mix" ? [ProductType.SNUS] : undefined} />
                   {items.length > 1 ? (
                     <button className="danger" type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>
                       Verwijder
@@ -1675,8 +2008,8 @@ function SalesView({ data }: { data: TrackerData }) {
                     Totaal: <strong>{totalQty} / {targetQty}</strong>
                   </div>
                 )}
-                <button type="button" onClick={() => setItems((current) => [...current, { variantId: firstVariantId(data), aantal: 1 }])}>
-                  + Smaak toevoegen
+                <button type="button" onClick={() => setItems((current) => [...current, { variantId: firstVariantId(data, isRol || mode === "mix" ? [ProductType.SNUS] : undefined), aantal: 1 }])}>
+                  + Product toevoegen
                 </button>
               </div>
               {mode === "mix" ? (
@@ -1711,7 +2044,9 @@ function SalesView({ data }: { data: TrackerData }) {
 
           <div className="segmented">
             <button className={!delivery ? "active" : ""} onClick={() => setDelivery(false)} type="button">Afhalen</button>
-            <button className={delivery ? "active" : ""} onClick={() => setDelivery(true)} type="button">Bezorgen +{euro(DELIVERY_PRICE)}</button>
+            <button className={delivery ? "active" : ""} onClick={() => setDelivery(true)} type="button">
+              {productCounts.vapes >= 2 ? "Bezorgen gratis" : `Bezorgen +${euro(DELIVERY_PRICE)}`}
+            </button>
           </div>
 
           <div className="stack">
@@ -1748,18 +2083,30 @@ function SalesView({ data }: { data: TrackerData }) {
                 </div>
               </div>
             )}
-            {hasPof ? (
-              <label>
-                Naam klant
-                <input name="klantNaam" required maxLength={120} value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-              </label>
-            ) : null}
+            <label>
+              {hasPof ? "Naam klant (pof — verplicht)" : "Klant (optioneel — voor stempelkaart)"}
+              <input
+                name="klantNaam"
+                list="klant-namen"
+                required={hasPof}
+                maxLength={120}
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                placeholder="bijv. Ahmed"
+              />
+              <datalist id="klant-namen">{knownNames.map((name) => <option key={name} value={name} />)}</datalist>
+            </label>
           </div>
 
           <div className="summary-row">
             <span>{editingSale ? "Bewerken" : isRol ? "Rol" : kindLabel(saleKind)}</span>
-            <strong>{isRol ? `${totalRollen} ${totalRollen === 1 ? "rol" : "rollen"} (${totalStuks} stuks)` : `${totalQty} / ${targetQty} stuks`}</strong>
+            <strong>
+              {isRol
+                ? `${totalRollen} ${totalRollen === 1 ? "rol" : "rollen"} (${totalStuks} stuks)`
+                : `${totalQty} / ${targetQty} stuks${productCounts.vapes ? ` · ${productCounts.vapes} vape${productCounts.vapes === 1 ? "" : "s"}` : ""}`}
+            </strong>
             <strong>Totaal: {euro(total)}</strong>
+            {deliveryIsFree ? <span className="success-text">Bezorgen gratis door 2+ vapes</span> : null}
             {!hasExactQty ? <span className="danger-text">Aantal klopt nog niet</span> : null}
           </div>
 
@@ -1780,9 +2127,51 @@ function SalesView({ data }: { data: TrackerData }) {
         </Panel>
       </div>
       ) : null}
+      {section === "weggeven" ? <GiveawayForm data={data} /> : null}
       {section === "concepten" ? <ConceptsView data={data} showEmpty /> : null}
       {section === "historie" ? <SalesHistory data={data} onEdit={editSale} /> : null}
     </section>
+  );
+}
+
+function GiveawayForm({ data }: { data: TrackerData }) {
+  const [item, setItem] = useState<DraftItem>({ variantId: firstVariantId(data), aantal: 1 });
+  const [datum, setDatum] = useState(dateInputValue(new Date()));
+  const [klant, setKlant] = useState("");
+  const [state, action] = useActionState(addGiveaway, null);
+  const selected = data.variants.find((variant) => variant.id === item.variantId);
+  const stock = selected?.voorraad ?? 0;
+  const canSubmit = Boolean(item.variantId) && item.aantal > 0 && stock >= item.aantal;
+  const kost = selected ? selected.inkoopPrijs * item.aantal : 0;
+  const knownNames = useMemo(
+    () => uniqueValues([...data.sales.map((sale) => sale.klantNaam || ""), ...data.debts.map((debt) => debt.naam)]).filter(Boolean),
+    [data]
+  );
+
+  return (
+    <Panel title="Bakjes weggeven">
+      <form action={action} className="stack">
+        <input type="hidden" name="items" value={JSON.stringify([{ variantId: item.variantId, aantal: item.aantal }])} />
+        <label>
+          Datum
+          <input name="datum" type="date" required value={datum} onChange={(event) => setDatum(event.target.value)} />
+        </label>
+        <label>
+          Klant (optioneel — verrekent met stempelkaart)
+          <input name="klantNaam" list="klant-namen-weg" maxLength={120} value={klant} onChange={(event) => setKlant(event.target.value)} placeholder="bijv. Ahmed" />
+          <datalist id="klant-namen-weg">{knownNames.map((name) => <option key={name} value={name} />)}</datalist>
+        </label>
+        <SaleItemEditor data={data} item={item} onChange={setItem} showCount countLabel="Aantal" />
+        <div className="summary-row">
+          <span>{selected ? `${productTypeLabel(selected.productType)} · ${selected.merk} ${selected.smaak}` : "Kies een product"}</span>
+          <strong>{item.aantal} gratis weg</strong>
+          <span className="muted">kost {euro(kost)} inkoop</span>
+          {selected && stock < item.aantal ? <span className="danger-text">Niet genoeg voorraad ({stock})</span> : null}
+        </div>
+        <SubmitButton disabled={!canSubmit}>Weggeven</SubmitButton>
+        <FormFeedback state={state} successLabel="Weggegeven" />
+      </form>
+    </Panel>
   );
 }
 
@@ -1791,31 +2180,49 @@ function SaleItemEditor({
   item,
   onChange,
   showCount,
-  countLabel = "Aantal"
+  countLabel = "Aantal",
+  productTypes
 }: {
   data: TrackerData;
   item: DraftItem;
   onChange: (item: DraftItem) => void;
   showCount: boolean;
   countLabel?: string;
+  productTypes?: ProductType[];
 }) {
   const selected = data.variants.find((variant) => variant.id === item.variantId);
-  const sellable = sellableVariants(data);
-  const brands = uniqueValues(sellable.map((variant) => variant.merk));
-  const flavors = sellable.filter((variant) => variant.merk === selected?.merk);
+  const allowedTypes = productTypes ?? [ProductType.SNUS, ProductType.VAPE];
+  const selectedType = selected?.productType ?? allowedTypes[0] ?? ProductType.SNUS;
+  const sellable = sellableVariants(data).filter((variant) => allowedTypes.includes(variant.productType));
+  const brands = uniqueValues(sellable.filter((variant) => variant.productType === selectedType).map((variant) => variant.merk));
+  const flavors = sellable.filter((variant) => variant.productType === selectedType && variant.merk === selected?.merk);
+
+  function selectProductType(productType: ProductType) {
+    const next = sellable.find((variant) => variant.productType === productType);
+    onChange({ ...item, variantId: next?.id || "" });
+  }
 
   function selectBrand(merk: string) {
-    const next = data.variants.find((variant) => variant.merk === merk);
+    const next = sellable.find((variant) => variant.productType === selectedType && variant.merk === merk);
     onChange({ ...item, variantId: next?.id || "" });
   }
 
   function selectFlavor(smaak: string) {
-    const next = data.variants.find((variant) => variant.merk === selected?.merk && variant.smaak === smaak);
+    const next = sellable.find((variant) => variant.productType === selectedType && variant.merk === selected?.merk && variant.smaak === smaak);
     onChange({ ...item, variantId: next?.id || "" });
   }
 
   return (
     <div className="sale-item-editor">
+      {allowedTypes.length > 1 ? (
+        <label>
+          Product
+          <select value={selectedType} onChange={(event) => selectProductType(event.target.value as ProductType)} required>
+            <option value={ProductType.SNUS}>Snus</option>
+            <option value={ProductType.VAPE}>Vape</option>
+          </select>
+        </label>
+      ) : null}
       <label>
         Merk
         <select value={selected?.merk || ""} onChange={(event) => selectBrand(event.target.value)} required>
@@ -1826,9 +2233,9 @@ function SaleItemEditor({
         </select>
       </label>
       <label>
-        Smaak
+        {selectedType === ProductType.VAPE ? "Model / smaak" : "Smaak"}
         <select value={selected?.smaak || ""} onChange={(event) => selectFlavor(event.target.value)} required disabled={!selected?.merk}>
-          <option value="">Kies smaak</option>
+          <option value="">{selectedType === ProductType.VAPE ? "Kies model" : "Kies smaak"}</option>
           {flavors.map((variant) => (
             <option key={variant.id} value={variant.smaak}>
               {variant.smaak} ({variant.voorraad} op voorraad)
@@ -1892,7 +2299,7 @@ function ConceptsView({ data, showEmpty = false }: { data: TrackerData; showEmpt
               return (
                 <tr key={concept.id}>
                   <td>{dateNl(concept.createdAt)}</td>
-                  <td>{concept.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td>{concept.items.map((item) => saleItemLabel(item)).join(", ")}</td>
                   <td>{paymentLabel(concept.betaalwijze)}{concept.klantNaam ? ` - ${concept.klantNaam}` : ""}</td>
                   <td>{euro(concept.bedrag)}</td>
                   <td>
@@ -1938,7 +2345,7 @@ function RecentSalesPreview({ sales }: { sales: SaleRecord[] }) {
               {sales.map((sale) => (
                 <tr key={sale.id}>
                   <td>{dateNl(sale.datum)}</td>
-                  <td>{sale.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td>{sale.items.map((item) => saleItemLabel(item)).join(", ")}</td>
                   <td><PaymentBadges payments={sale.payments} /></td>
                   <td className="amount"><strong>{euro(sale.bedrag)}</strong></td>
                 </tr>
@@ -1975,12 +2382,14 @@ function SalesHistory({ data, onEdit }: { data: TrackerData; onEdit: (sale: Sale
                 <tr key={sale.id}>
                   <td>{dateNl(sale.datum)}</td>
                   <td>{sale.kind === SaleKind.MULTI && (sale.rolAantal ?? 0) > 0 ? "Rol" : kindLabel(sale.kind)}</td>
-                  <td>{sale.items.map((item) => `${item.merk} ${item.smaak} x${item.aantal}`).join(", ")}</td>
+                  <td>{sale.items.map((item) => saleItemLabel(item)).join(", ")}</td>
                   <td><PaymentBadges payments={sale.payments} /></td>
                   <td><SaleStatus sale={sale} /></td>
                   <td className="amount">{euro(sale.bedrag)}</td>
                   <td className="button-row">
-                    <button type="button" onClick={() => onEdit(sale)}><IconEdit size={15} /><span>Bewerk</span></button>
+                    {sale.gratis ? null : (
+                      <button type="button" onClick={() => onEdit(sale)}><IconEdit size={15} /><span>Bewerk</span></button>
+                    )}
                     <ActionButton action={deleteSale} fields={{ id: sale.id }} className="danger" confirm successToast="Verkoop verwijderd">
                       <IconTrash size={15} /><span>Verwijder</span>
                     </ActionButton>
@@ -2015,7 +2424,7 @@ function StockAdjustForm({ data }: { data: TrackerData }) {
         <SaleItemEditor data={data} item={{ variantId, aantal }} onChange={(next) => setVariantId(next.variantId)} showCount={false} />
 
         <label>
-          Aantal bakjes
+          Aantal stuks
           <span className="count-control">
             <button type="button" onClick={() => setAantal((value) => Math.max(0, value - 1))}>-</button>
             <input min={0} type="number" value={aantal} onChange={(event) => setAantal(Math.max(0, Number(event.target.value) || 0))} />
@@ -2029,7 +2438,7 @@ function StockAdjustForm({ data }: { data: TrackerData }) {
         </div>
 
         <div className="summary-row">
-          <span>{selected ? `${selected.merk} ${selected.smaak}` : "Kies een smaak"}</span>
+          <span>{selected ? `${productTypeLabel(selected.productType)} · ${selected.merk} ${selected.smaak}` : "Kies een product"}</span>
           <strong>{current} → {preview} stuks</strong>
         </div>
 
@@ -2042,10 +2451,13 @@ function StockAdjustForm({ data }: { data: TrackerData }) {
 
 function StockView({ data }: { data: TrackerData }) {
   const grouped = data.variants.reduce<Map<string, TrackerData["variants"]>>((map, variant) => {
-    map.set(variant.merk, [...(map.get(variant.merk) || []), variant]);
+    const key = `${variant.productType}:${variant.merk}`;
+    map.set(key, [...(map.get(key) || []), variant]);
     return map;
   }, new Map());
   const totalStock = data.variants.reduce((sum, variant) => sum + variant.voorraad, 0);
+  const snusStock = data.variants.filter((variant) => variant.productType === ProductType.SNUS).reduce((sum, variant) => sum + variant.voorraad, 0);
+  const vapeStock = data.variants.filter((variant) => variant.productType === ProductType.VAPE).reduce((sum, variant) => sum + variant.voorraad, 0);
   const stockValue = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
   const emptyCount = data.variants.filter((variant) => variant.voorraad === 0).length;
   const velocity = variantVelocity(data, 30);
@@ -2056,13 +2468,14 @@ function StockView({ data }: { data: TrackerData }) {
       <h1>Voorraad</h1>
       <div className="metric-grid compact">
         <Metric label="Voorraad totaal" value={`${totalStock} stuks`} />
-        <Metric label="In rollen" value={stockRolls(totalStock)} />
+        <Metric label="Snus" value={stockRolls(snusStock)} />
+        <Metric label="Vapes" value={`${vapeStock} stuks`} />
         <Metric label="Voorraadwaarde" value={euro(stockValue)} />
         <Metric label="Aanvullen nodig" value={`${restockCount} ${restockCount === 1 ? "smaak" : "smaken"}`} tone={restockCount ? "bad" : "good"} />
         <Metric label="Leeg" value={`${emptyCount} smaken`} tone={emptyCount ? "bad" : "good"} />
       </div>
       <StockAdjustForm data={data} />
-      <Panel title="Voorraad per smaak">
+      <Panel title="Voorraad per product">
         {data.variants.length === 0 ? (
           <p className="empty">Nog geen varianten.</p>
         ) : (
@@ -2070,27 +2483,29 @@ function StockView({ data }: { data: TrackerData }) {
             <table>
               <thead>
                 <tr>
-                  <th>Merk / smaak</th>
+                  <th>Product / merk</th>
                   <th>Stuks</th>
-                  <th>In rollen</th>
+                  <th>Eenheden</th>
                   <th>Status</th>
                   <th>Voorraad over</th>
                   <th>Voorraadwaarde</th>
                 </tr>
               </thead>
               <tbody>
-                {[...grouped.entries()].map(([merk, variants]) => {
+                {[...grouped.entries()].map(([key, variants]) => {
+                  const [productTypeRaw, merk] = key.split(":");
+                  const productType = productTypeRaw as ProductType;
                   const merkTotal = variants.reduce((sum, variant) => sum + variant.voorraad, 0);
                   const merkValue = variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
                   const className = brandClass(merk);
                   return (
-                    <Fragment key={merk}>
+                    <Fragment key={key}>
                       <tr className={`stock-group stock-${className}`}>
                         <td>
-                          <span className={`brand-badge brand-${className}`}>{merk}</span>
+                          <span className={`brand-badge brand-${className}`}>{productTypeLabel(productType)} · {merk}</span>
                         </td>
                         <td colSpan={5}>
-                          Totaal: {merkTotal} stuks - {stockRolls(merkTotal)} - {euro(merkValue)}
+                          Totaal: {merkTotal} stuks - {productType === ProductType.VAPE ? `${merkTotal} vapes` : stockRolls(merkTotal)} - {euro(merkValue)}
                         </td>
                       </tr>
                       {variants.map((variant) => {
@@ -2100,7 +2515,7 @@ function StockView({ data }: { data: TrackerData }) {
                           <tr key={variant.id}>
                             <td className="stock-flavor">{variant.smaak}</td>
                             <td>{variant.voorraad} stuks</td>
-                            <td>{stockRolls(variant.voorraad)}</td>
+                            <td>{stockUnits(variant)}</td>
                             <td><span className={`stock-badge ${status.className}`}>{status.label}</span></td>
                             <td className={days.className} title={days.title}>{days.text}</td>
                             <td>{euro(variant.voorraad * variant.inkoopPrijs)}</td>
@@ -2301,7 +2716,7 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
         </Panel>
       ) : (
         <>
-          <div className="metric-grid">
+          <div className="metric-grid kpis">
             <Metric
               label="Omzet"
               value={euro(activeStats.omzet)}
@@ -2551,6 +2966,7 @@ function DebtView({ data }: { data: TrackerData }) {
         items={[
           ["personen", "Personen"],
           ["posten", "Open posten"],
+          ["stempelkaarten", "Stempelkaarten"],
           ["toevoegen", "Toevoegen"]
         ]}
         onChange={setSection}
@@ -2587,11 +3003,12 @@ function DebtView({ data }: { data: TrackerData }) {
         </form>
       </Panel>
       ) : null}
-      {openDebts.length === 0 && section !== "toevoegen" ? (
+      {section === "stempelkaarten" ? <LoyaltyPanel data={data} /> : null}
+      {openDebts.length === 0 && section !== "toevoegen" && section !== "stempelkaarten" ? (
         <Panel title="Openstaande pof">
           <p className="empty">Geen openstaande pofposten.</p>
         </Panel>
-      ) : openDebts.length > 0 && section !== "toevoegen" ? (
+      ) : openDebts.length > 0 && section !== "toevoegen" && section !== "stempelkaarten" ? (
         <div className={`debt-workspace ${section === "posten" ? "wide" : ""}`}>
           {section === "personen" ? (
           <>

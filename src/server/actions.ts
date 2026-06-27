@@ -1,6 +1,6 @@
 "use server";
 
-import { PaymentMethod, PriceKind, Prisma, SaleKind } from "@prisma/client";
+import { PaymentMethod, PriceKind, Prisma, ProductType, SaleKind } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ActionState } from "@/lib/action-state";
@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import {
   debtInputSchema,
+  giveawayInputSchema,
   idSchema,
   multiSaleInputSchema,
   nameSchema,
@@ -121,8 +122,8 @@ function resolvePayments(
   return { effective, pofDeel, primair };
 }
 
-function saleDescriptionItems(items: Array<{ variantId: string; merk: string; smaak: string; aantal: number }>) {
-  return items.map((item) => ({ variantId: item.variantId, merk: item.merk, smaak: item.smaak, aantal: item.aantal }));
+function saleDescriptionItems(items: Array<{ variantId: string; productType: ProductType; merk: string; smaak: string; aantal: number }>) {
+  return items.map((item) => ({ variantId: item.variantId, productType: item.productType, merk: item.merk, smaak: item.smaak, aantal: item.aantal }));
 }
 
 async function createSaleFromInput(
@@ -136,11 +137,17 @@ async function createSaleFromInput(
     rolAantal?: number;
     betaalwijze: PaymentMethod;
     payments?: Array<{ method: PaymentMethod; bedrag: number }>;
+    gratis?: boolean;
     klantNaam?: string;
     datum?: Date;
   }
 ) {
-  const { effective, pofDeel, primair } = resolvePayments(input.bedrag, input.betaalwijze, input.payments);
+  const gratis = input.gratis ?? false;
+  // Gratis weggeven: €0 omzet, geen betaaldelen en geen pofschuld. De inkoopkosten
+  // tellen wél mee (via de saleItems), zodat de winst correct daalt.
+  const { effective, pofDeel, primair } = gratis
+    ? { effective: [] as Array<{ method: PaymentMethod; bedrag: number }>, pofDeel: 0, primair: input.betaalwijze }
+    : resolvePayments(input.bedrag, input.betaalwijze, input.payments);
   if (pofDeel > 0 && !input.klantNaam) {
     throw new Error("Naam is verplicht bij (gedeeltelijke) pof.");
   }
@@ -167,7 +174,10 @@ async function createSaleFromInput(
       bezorgkosten: input.bezorgkosten === undefined ? null : decimal(input.bezorgkosten),
       rolAantal: input.rolAantal ?? null,
       betaalwijze: primair,
-      klantNaam: pofDeel > 0 ? input.klantNaam : null,
+      // Bewaar de klantnaam zodra die is ingevuld (ook bij cash/tikkie), zodat de
+      // stempelkaart op elke verkoop kan sparen — niet alleen bij pof.
+      klantNaam: input.klantNaam ?? null,
+      gratis,
       datum: input.datum
     }
   });
@@ -254,10 +264,12 @@ function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
 async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.infer<typeof purchaseInputSchema>) {
   // Voorraad in pakjes = rollen × 10 + losse pakjes. Prijs per pakje volgt uit de
   // rolprijs (1 rol = 10 pakjes); losse pakjes kosten datzelfde bedrag per stuk.
-  const aantal = input.rollen * BAKJES_PER_ROL + input.losse;
-  const prijsPerStuk = input.prijsPerRol / BAKJES_PER_ROL;
+  const isVape = input.productType === ProductType.VAPE;
+  const aantal = isVape ? input.stuks : input.rollen * BAKJES_PER_ROL + input.losse;
+  const prijsPerStuk = isVape ? input.prijsPerStuk! : input.prijsPerRol! / BAKJES_PER_ROL;
+  const prijsPerRol = isVape ? input.prijsPerStuk! : input.prijsPerRol!;
   const existing = await tx.variant.findUnique({
-    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } }
+    where: { productType_merk_smaak: { productType: input.productType, merk: input.merk, smaak: input.smaak } }
   });
 
   const nextInkoopPrijs = existing?.voorraad
@@ -265,12 +277,13 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
     : prijsPerStuk;
 
   const variant = await tx.variant.upsert({
-    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } },
+    where: { productType_merk_smaak: { productType: input.productType, merk: input.merk, smaak: input.smaak } },
     update: {
       voorraad: { increment: aantal },
       inkoopPrijs: new Prisma.Decimal(nextInkoopPrijs.toFixed(4))
     },
     create: {
+      productType: input.productType,
       merk: input.merk,
       smaak: input.smaak,
       voorraad: aantal,
@@ -281,9 +294,9 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
   await tx.purchase.create({
     data: {
       variantId: variant.id,
-      rollen: input.rollen,
+      rollen: isVape ? 0 : input.rollen,
       aantal,
-      prijsPerRol: new Prisma.Decimal(input.prijsPerRol.toFixed(2)),
+      prijsPerRol: new Prisma.Decimal(prijsPerRol.toFixed(2)),
       prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
     }
   });
@@ -366,13 +379,34 @@ export async function addMultiSale(_prev: ActionState, formData: FormData): Prom
   });
 }
 
+export async function addGiveaway(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:sale");
+    const items = parse(formItemsSchema, String(formData.get("items") || "[]"));
+    const { datum, klantNaam } = parse(giveawayInputSchema, { datum: formData.get("datum"), klantNaam: formData.get("klantNaam") });
+
+    await prisma.$transaction(async (tx) => {
+      await createSaleFromInput(tx, {
+        kind: items.length > 1 ? SaleKind.MULTI : SaleKind.NORMAL,
+        items,
+        bedrag: 0,
+        gratis: true,
+        betaalwijze: PaymentMethod.CASH,
+        klantNaam,
+        datum
+      });
+    });
+    revalidatePath("/");
+  });
+}
+
 async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
   const variants = await prisma.variant.findMany({ where: { id: { in: input.items.map((item) => item.variantId) } } });
   const byId = new Map(variants.map((variant) => [variant.id, variant]));
   const items = input.items.map((item) => {
     const variant = byId.get(item.variantId);
     if (!variant) throw new Error("Variant bestaat niet.");
-    return { variantId: item.variantId, merk: variant.merk, smaak: variant.smaak, aantal: item.aantal };
+    return { variantId: item.variantId, productType: variant.productType, merk: variant.merk, smaak: variant.smaak, aantal: item.aantal };
   });
   await prisma.concept.create({
     data: {
@@ -404,7 +438,7 @@ export async function confirmConcept(_prev: ActionState, formData: FormData): Pr
         throw new Error("Concept is verlopen.");
       }
       const items = parse(
-        z.array(z.object({ variantId: z.string().cuid(), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() })),
+        z.array(z.object({ variantId: z.string().cuid(), productType: z.nativeEnum(ProductType).default(ProductType.SNUS), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() })),
         concept.items
       ).map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
       await createSaleFromInput(tx, {
@@ -473,7 +507,9 @@ export async function deletePurchase(_prev: ActionState, formData: FormData): Pr
       const purchase = await tx.purchase.findUnique({ where: { id }, include: { variant: true } });
       if (!purchase) throw new Error("Inkoop bestaat niet.");
       if (purchase.variant.voorraad < purchase.aantal) {
-        throw new Error("Deze inkoop kan niet veilig verwijderd worden: voorraad is al deels verkocht.");
+        throw new Error(
+          `Kan deze inkoop niet verwijderen: er zijn nog ${purchase.variant.voorraad} van de ${purchase.aantal} pakjes op voorraad, de rest is al verkocht. Pas eerst de voorraad aan of verwijder de bijbehorende verkoop.`
+        );
       }
       await tx.purchase.delete({ where: { id } });
       const remaining = await tx.purchase.findMany({ where: { variantId: purchase.variantId }, orderBy: { datum: "asc" } });

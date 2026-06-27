@@ -8,12 +8,14 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "migrate:legacy": "tsx scripts/migrate-legacy-state.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "next": "^16.3.0-canary.53",
@@ -31,7 +33,8 @@
     "eslint-config-next": "^16.3.0-canary.53",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

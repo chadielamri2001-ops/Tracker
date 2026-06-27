@@ -81,20 +81,22 @@
   --text-2: #c7c7cc;
   --muted: #8b8b93;
 
-  --accent: #6ea8ff;
-  --accent-hover: #8bbaff;
-  --accent-press: #4f8df5;
-  --accent-soft: rgba(110, 168, 255, 0.12);
-  --accent-line: rgba(110, 168, 255, 0.38);
-  --on-accent: #07111f;
+  /* Monochroom: het accent is platinum/wit i.p.v. een kleur. */
+  --accent: #f3f3f5;
+  --accent-hover: #ffffff;
+  --accent-press: #d9d9dd;
+  --accent-soft: rgba(255, 255, 255, 0.09);
+  --accent-line: rgba(255, 255, 255, 0.22);
+  --on-accent: #0b0b0c;
 
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.12);
   --danger: #f76d6d;
   --danger-soft: rgba(247, 109, 109, 0.13);
-  --warn: #f59e0b;
+  --warn: #e0a544;
+  --warn-soft: rgba(224, 165, 68, 0.13);
 
-  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--text) 22%, transparent);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.55);
   --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -18px rgba(0, 0, 0, 0.8);
@@ -117,11 +119,12 @@
   --text-2: #46433f;
   --muted: #76726b;
 
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-press: #1e40af;
-  --accent-soft: rgba(37, 99, 235, 0.10);
-  --accent-line: rgba(37, 99, 235, 0.32);
+  /* Monochroom: het accent is bijna-zwart i.p.v. een kleur. */
+  --accent: #1b1b1e;
+  --accent-hover: #000000;
+  --accent-press: #333338;
+  --accent-soft: rgba(20, 20, 22, 0.06);
+  --accent-line: rgba(20, 20, 22, 0.22);
   --on-accent: #ffffff;
 
   --success: #0f9d6b;
@@ -129,8 +132,9 @@
   --danger: #d4452f;
   --danger-soft: rgba(212, 69, 47, 0.10);
   --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.12);
 
-  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--text) 18%, transparent);
   --shadow-xs: 0 1px 2px rgba(24, 22, 18, 0.05);
   --shadow-sm: 0 1px 2px rgba(24, 22, 18, 0.06);
   --shadow-md: 0 1px 2px rgba(24, 22, 18, 0.04), 0 10px 26px -16px rgba(24, 22, 18, 0.18);
@@ -268,6 +272,7 @@ h2 {
 .pay-cash { background: var(--success-soft); color: var(--success); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 .pay-pof { background: rgba(245, 158, 11, 0.12); color: var(--warn); border-color: rgba(245, 158, 11, 0.28); }
 .pay-tikkie { background: var(--surface-3); color: var(--text-2); border-color: var(--border-strong); }
+.pay-gratis { background: color-mix(in srgb, #a78bfa 16%, var(--surface)); color: color-mix(in srgb, #a78bfa 78%, var(--text)); border-color: color-mix(in srgb, #a78bfa 50%, transparent); }
 .pay-badges { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 
 /* Status-pill (voldaan / openstaand) */
@@ -283,6 +288,7 @@ h2 {
 .status-pill::before { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
 .status-ok { background: var(--success-soft); color: var(--success); }
 .status-open { background: var(--danger-soft); color: var(--danger); }
+.status-gratis { background: color-mix(in srgb, #a78bfa 16%, var(--surface)); color: color-mix(in srgb, #a78bfa 78%, var(--text)); }
 
 /* Toasts (rechtsonder, zelf verdwijnend) */
 .toaster {
@@ -674,7 +680,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
-.metric { display: grid; gap: var(--space-2); padding: 1.1rem 1.2rem; }
+.metric { display: grid; gap: var(--space-2); padding: 1.1rem 1.2rem; align-content: start; }
 .metric span {
   color: var(--muted);
   font-size: var(--text-xs);
@@ -682,15 +688,110 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
-.metric strong { font-size: var(--text-xl); font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); line-height: 1.1; font-variant-numeric: tabular-nums; }
-.metric strong,
+.metric strong { font-size: var(--text-xl); font-weight: var(--fw-bold); letter-spacing: var(--tracking-tight); line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .metric small,
 .metric span {
   overflow-wrap: anywhere;
 }
 .metric small { color: var(--muted); font-size: var(--text-sm); }
 .metric-grid.compact .metric strong { font-size: var(--text-md); }
-.metric-value { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+/* Hoofd-KPI's: rustige, ruime tegels (3 per rij) i.p.v. een krappe strip. */
+.metric-grid.kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Bijna-op / aanvullen-lijst — compacte 2-regel-kaart, werkt in smalle kolom */
+.restock-list { display: grid; }
+.restock-row {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+.restock-row:first-child { border-top: none; }
+.restock-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.restock-name { display: flex; align-items: center; gap: 0.4rem; min-width: 0; font-weight: var(--fw-semibold); }
+.restock-flavor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.restock-head strong { flex: 0 0 auto; white-space: nowrap; font-size: var(--text-sm); }
+.restock-meta { color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+
+/* Inzichten — nette label/waarde-lijst (werkt in smalle zijkolom) */
+.insight-stats { display: grid; margin: var(--space-2) 0; }
+.insight-stat {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+.insight-stat:first-child { border-top: none; padding-top: 0; }
+.insight-stat .lbl { color: var(--muted); font-size: var(--text-sm); padding-top: 0.1rem; }
+.insight-stat .val { display: flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; text-align: right; min-width: 0; }
+.insight-stat .val strong { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+.insight-stat .val small { color: var(--muted); font-size: var(--text-xs); }
+.insight-stat .cap { text-transform: capitalize; }
+
+/* Prognose & beste verkoopdagen */
+.forecast-note { font-size: var(--text-sm); margin: 0 0 var(--space-3); }
+
+/* AI-assistent */
+.ai-input-row { display: flex; gap: var(--space-2); align-items: stretch; }
+.ai-input-row input { flex: 1; min-width: 0; }
+.ai-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ai-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  padding: 0.3rem 0.7rem;
+}
+.ai-chip:hover { background: var(--surface-3); color: var(--text); }
+.ai-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.ai-answer {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: grid;
+  gap: var(--space-2);
+}
+.ai-answer p { margin: 0; color: var(--text); font-size: var(--text-base); line-height: 1.55; }
+.weekday-list { display: grid; gap: var(--space-2); }
+.weekday-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
+.weekday-name { color: var(--text-2); }
+.weekday-bar { height: 8px; border-radius: var(--radius-pill); background: var(--surface-2); overflow: hidden; }
+.weekday-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--border-strong); transition: width var(--motion-base); }
+.weekday-val { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.weekday-row.best .weekday-name { color: var(--text); font-weight: var(--fw-bold); }
+.weekday-row.best .weekday-bar > span { background: var(--accent); }
+.weekday-row.best .weekday-val { color: var(--text); font-weight: var(--fw-semibold); }
+
+/* Stempelkaarten (loyalty) */
+.loyalty-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); }
+.loyalty-card { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.loyalty-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.loyalty-reward { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); font-size: var(--text-xs); font-weight: var(--fw-bold); padding: 0.2rem 0.6rem; border-radius: var(--radius-pill); white-space: nowrap; }
+.stamp-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.stamp { width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 1px dashed var(--border-strong); display: grid; place-items: center; color: var(--muted); font-size: var(--text-sm); }
+.stamp.on { background: var(--accent); border: 1px solid transparent; color: var(--on-accent); }
+.loyalty-meta { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+/* Snelle acties op het dashboard */
+.quick-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-5); }
+.quick-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+.quick-actions .qa-primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.quick-actions .qa-primary:hover { background: var(--accent-hover); }
+
+.metric-value { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .delta-chip {
   display: inline-flex;
   align-items: center;
@@ -918,12 +1019,12 @@ td:last-child, th:last-child { white-space: nowrap; }
   margin-right: 0.4rem;
   background: var(--dot, var(--muted));
 }
-.brand-pablo { --dot: #5b8def; }
-.brand-killa { --dot: #38bdf8; }
-.brand-cuba { --dot: #a78bfa; }
-.brand-fox { --dot: #fb923c; }
-.brand-iceberg { --dot: #22d3ee; }
-.brand-velo { --dot: #d4b257; }
+.brand-pablo,
+.brand-killa,
+.brand-cuba,
+.brand-fox,
+.brand-iceberg,
+.brand-velo,
 .brand-default { --dot: var(--muted); }
 
 .stock-badge.ok { background: var(--success-soft); color: var(--success); }
@@ -1179,7 +1280,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 .pay-grid { gap: var(--space-2); }
 .pay-grid button { flex: 1 1 90px; }
 .pay-btn.selected-cash { background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 55%, transparent); color: var(--success); font-weight: var(--fw-bold); }
-.pay-btn.selected-tikkie { background: color-mix(in srgb, #5b8def 16%, var(--surface)); border-color: color-mix(in srgb, #5b8def 55%, transparent); color: color-mix(in srgb, #5b8def 80%, var(--text)); font-weight: var(--fw-bold); }
+.pay-btn.selected-tikkie { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); font-weight: var(--fw-bold); }
 .pay-btn.selected-pof { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.30); color: var(--warn); font-weight: var(--fw-bold); }
 
 /* Gesplitste betaling */
@@ -1216,12 +1317,12 @@ td:last-child, th:last-child { white-space: nowrap; }
 /* Stock table */
 .stock-group { background: var(--surface-2); }
 .stock-group td { font-weight: var(--fw-bold); }
-.stock-pablo td:first-child { box-shadow: inset 3px 0 0 #5b8def; }
-.stock-killa td:first-child { box-shadow: inset 3px 0 0 #38bdf8; }
-.stock-cuba td:first-child { box-shadow: inset 3px 0 0 #a78bfa; }
-.stock-fox td:first-child { box-shadow: inset 3px 0 0 #fb923c; }
-.stock-iceberg td:first-child { box-shadow: inset 3px 0 0 #22d3ee; }
-.stock-velo td:first-child { box-shadow: inset 3px 0 0 #d4b257; }
+.stock-pablo td:first-child,
+.stock-killa td:first-child,
+.stock-cuba td:first-child,
+.stock-fox td:first-child,
+.stock-iceberg td:first-child,
+.stock-velo td:first-child,
 .stock-default td:first-child { box-shadow: inset 3px 0 0 var(--border-strong); }
 .stock-flavor { color: var(--muted); padding-left: 1.5rem; }
 
@@ -1903,7 +2004,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 
 @media (max-width: 760px) {
-  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-grid, .metric-grid.kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .debt-hero,
   .debt-toolbar { grid-template-columns: 1fr; }
   .debt-hero-grid,
@@ -1925,7 +2026,7 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 
 @media (max-width: 420px) {
-  .metric-grid { grid-template-columns: 1fr; }
+  .metric-grid, .metric-grid.kpis { grid-template-columns: 1fr; }
   .bottom-item { font-size: 0.56rem; }
 }
 

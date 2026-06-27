@@ -24,6 +24,7 @@ export async function getTrackerData() {
   return trackerDataSchema.parse({
     variants: variants.map((variant) => ({
       id: variant.id,
+      productType: variant.productType,
       merk: variant.merk,
       smaak: variant.smaak,
       voorraad: variant.voorraad,
@@ -33,6 +34,7 @@ export async function getTrackerData() {
     })),
     purchases: purchases.map((purchase) => ({
       id: purchase.id,
+      productType: purchase.variant.productType,
       datum: purchase.datum.toISOString(),
       merk: purchase.variant.merk,
       smaak: purchase.variant.smaak,
@@ -52,13 +54,17 @@ export async function getTrackerData() {
       rolAantal: sale.rolAantal,
       klantNaam: sale.klantNaam,
       pofBetaald: sale.pofBetaald,
-      payments: sale.payments.length
-        ? sale.payments.map((payment) => ({ method: payment.method as PaymentMethod, bedrag: Number(payment.bedrag) }))
-        : [{ method: sale.betaalwijze as PaymentMethod, bedrag: Number(sale.bedrag) }],
+      gratis: sale.gratis,
+      payments: sale.gratis
+        ? []
+        : sale.payments.length
+          ? sale.payments.map((payment) => ({ method: payment.method as PaymentMethod, bedrag: Number(payment.bedrag) }))
+          : [{ method: sale.betaalwijze as PaymentMethod, bedrag: Number(sale.bedrag) }],
       items: sale.items.map((item) => ({
         id: item.id,
         variantId: item.variantId,
         merk: item.variant.merk,
+        productType: item.variant.productType,
         smaak: item.variant.smaak,
         aantal: item.aantal,
         bedrag: Number(item.bedrag)
@@ -75,6 +81,7 @@ export async function getTrackerData() {
             kind: debt.sale.kind,
             items: debt.sale.items.map((item) => ({
               merk: item.variant.merk,
+              productType: item.variant.productType,
               smaak: item.variant.smaak,
               aantal: item.aantal
             }))
@@ -82,11 +89,11 @@ export async function getTrackerData() {
         : null
     })),
     concepts: concepts.map((concept) => {
-      const items = concept.items as Array<{ variantId: string; merk: string; smaak: string; aantal: number }>;
+      const items = concept.items as Array<{ variantId: string; productType?: string; merk: string; smaak: string; aantal: number }>;
       return {
         id: concept.id,
         kind: concept.kind,
-        items,
+        items: items.map((item) => ({ ...item, productType: item.productType ?? "SNUS" })),
         bedrag: Number(concept.bedrag),
         basisBedrag: concept.basisBedrag === null ? null : Number(concept.basisBedrag),
         bezorgkosten: concept.bezorgkosten === null ? null : Number(concept.bezorgkosten),

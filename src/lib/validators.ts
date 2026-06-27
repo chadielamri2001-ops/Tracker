@@ -1,4 +1,4 @@
-import { PaymentMethod, PriceKind, SaleKind } from "@prisma/client";
+import { PaymentMethod, PriceKind, ProductType, SaleKind } from "@prisma/client";
 import { z } from "zod";
 import { parseMoneyInput } from "./money";
 
@@ -24,13 +24,26 @@ const saleDate = z.preprocess((value) => {
 
 export const purchaseInputSchema = z
   .object({
+    productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
     merk: z.string().trim().min(1).max(80),
     smaak: z.string().trim().min(1).max(120),
     rollen: z.coerce.number().int().min(0).max(1000),
     losse: z.preprocess((value) => (value === "" || value === null || value === undefined ? 0 : value), z.coerce.number().int().min(0).max(1000)),
-    prijsPerRol: money
+    prijsPerRol: z.preprocess((value) => (value === "" || value === null || value === undefined ? undefined : value), money.optional()),
+    stuks: z.preprocess((value) => (value === "" || value === null || value === undefined ? 0 : value), z.coerce.number().int().min(0).max(1000).default(0)),
+    prijsPerStuk: z.preprocess((value) => (value === "" || value === null || value === undefined ? undefined : value), money.optional())
   })
-  .refine((value) => value.rollen + value.losse >= 1, { message: "Voer minstens 1 rol of 1 los pakje in." });
+  .superRefine((value, ctx) => {
+    if (value.productType === ProductType.VAPE) {
+      if (value.stuks < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Voer minstens 1 vape in.", path: ["stuks"] });
+      if (!value.prijsPerStuk) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Vul de inkoopprijs per vape in.", path: ["prijsPerStuk"] });
+      return;
+    }
+    if (value.rollen + value.losse < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Voer minstens 1 rol of 1 los pakje in.", path: ["rollen"] });
+    }
+    if (!value.prijsPerRol) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Vul de prijs per rol in.", path: ["prijsPerRol"] });
+  });
 
 export const purchaseRowsInputSchema = z.array(purchaseInputSchema).min(1).max(50);
 
@@ -58,6 +71,12 @@ export const saleItemInputSchema = z.object({
 export const paymentSplitInputSchema = z.object({
   method: z.nativeEnum(PaymentMethod),
   bedrag: money
+});
+
+// Weggeven van bakjes (gratis): datum + optioneel een klantnaam (voor de stempelkaart).
+export const giveawayInputSchema = z.object({
+  datum: saleDate,
+  klantNaam: optionalName
 });
 
 export const multiSaleInputSchema = z.object({
@@ -91,6 +110,11 @@ export const idSchema = z.object({
   id: z.string().cuid()
 });
 
+// Vraag voor de AI-assistent: vrije tekst, server-side begrensd om kosten/misbruik te beperken.
+export const aiQuestionSchema = z.object({
+  vraag: z.string().trim().min(2, "Stel een vraag.").max(500, "Hou je vraag korter (max 500 tekens).")
+});
+
 export const nameSchema = z.object({
   naam: z.string().trim().min(1).max(120)
 });
@@ -109,6 +133,7 @@ export const trackerDataSchema = z.object({
   variants: z.array(
     z.object({
       id: z.string(),
+      productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
       merk: z.string(),
       smaak: z.string(),
       voorraad: z.number(),
@@ -120,6 +145,7 @@ export const trackerDataSchema = z.object({
   purchases: z.array(
     z.object({
       id: z.string(),
+      productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
       datum: z.string(),
       merk: z.string(),
       smaak: z.string(),
@@ -141,6 +167,7 @@ export const trackerDataSchema = z.object({
       rolAantal: z.number().nullable(),
       klantNaam: z.string().nullable(),
       pofBetaald: z.boolean(),
+      gratis: z.boolean().default(false),
       payments: z
         .array(
           z.object({
@@ -153,6 +180,7 @@ export const trackerDataSchema = z.object({
         z.object({
           id: z.string(),
           variantId: z.string(),
+          productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
           merk: z.string(),
           smaak: z.string(),
           aantal: z.number(),
@@ -174,6 +202,7 @@ export const trackerDataSchema = z.object({
           items: z.array(
             z.object({
               merk: z.string(),
+              productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
               smaak: z.string(),
               aantal: z.number()
             })
@@ -189,6 +218,7 @@ export const trackerDataSchema = z.object({
       items: z.array(
         z.object({
           variantId: z.string(),
+          productType: z.nativeEnum(ProductType).default(ProductType.SNUS),
           merk: z.string(),
           smaak: z.string(),
           aantal: z.number()
