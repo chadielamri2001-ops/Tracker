@@ -103,3 +103,5 @@ Het script valideert de oude shape met Zod en schrijft varianten, verkoop, pofli
 - Migreer de oude JSON alleen vanuit een lokaal exportbestand.
 - Haal de oude Google Apps Script Web App deployment offline, of beperk die direct, zodat de publieke dataset niet meer via GET bereikbaar is.
 - Verwijder eventuele oude GitHub Pages static deployment die nog de oude `index.html` serveert.
+
+  Vercel deploy trigger
