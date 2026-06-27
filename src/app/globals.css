@@ -549,6 +549,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 
 /* Bottom navigation — alleen op smalle schermen zichtbaar */
 .bottom-nav { display: none; }
+.mobile-topbar { display: none; }
 
 /* icon + label alignment for toolbar / row buttons */
 .nav-item, .theme-toggle, .sidebar .ghost,
@@ -1962,6 +1963,33 @@ td:last-child, th:last-child { white-space: nowrap; }
 /* Onder 860px: zijbalk inruilen voor onderbalk-navigatie */
 @media (max-width: 860px) {
   .sidebar { display: none; }
+  .mobile-topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: var(--z-header);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    padding-top: max(var(--space-3), env(safe-area-inset-top));
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    backdrop-filter: saturate(150%) blur(18px);
+    -webkit-backdrop-filter: saturate(150%) blur(18px);
+    border-bottom: 1px solid var(--border);
+  }
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: var(--text-lg);
+    font-weight: var(--fw-extrabold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text);
+  }
+  .mobile-topbar-actions { display: flex; align-items: center; gap: var(--space-2); }
   .bottom-nav {
     position: fixed;
     bottom: 0;
@@ -1996,7 +2024,7 @@ td:last-child, th:last-child { white-space: nowrap; }
   .bottom-dot { position: absolute; top: -2px; right: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); border: 1px solid var(--bg-elevated); }
   .shell {
     padding: var(--space-5) var(--space-4);
-    padding-top: max(var(--space-5), env(safe-area-inset-top));
+    padding-top: calc(56px + env(safe-area-inset-top) + var(--space-3));
     padding-bottom: calc(64px + env(safe-area-inset-bottom) + var(--space-4));
   }
   .toaster { bottom: calc(64px + env(safe-area-inset-bottom) + var(--space-3)); left: max(var(--space-4), env(safe-area-inset-left)); right: max(var(--space-4), env(safe-area-inset-right)); }

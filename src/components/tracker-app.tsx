@@ -895,6 +895,21 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
         </div>
       </aside>
 
+      <header className="mobile-topbar">
+        <div className="mobile-brand">
+          <span className="brand-mark">t</span>
+          <span>tracker</span>
+        </div>
+        <div className="mobile-topbar-actions">
+          <button className="ghost icon-only" onClick={toggleTheme} type="button" aria-label={theme === "dark" ? "Licht thema" : "Donker thema"}>
+            {theme === "dark" ? <IconSun size={18} /> : <IconMoon size={18} />}
+          </button>
+          <button className="ghost icon-only" onClick={() => signOut({ callbackUrl: "/login" })} type="button" aria-label="Uitloggen">
+            <IconLogout size={18} />
+          </button>
+        </div>
+      </header>
+
       <main className="shell">
         {tab === "overzicht" ? <Overview data={data} metrics={metrics} analytics={analytics} onNavigate={navigate} /> : null}
         {tab === "inkoop" ? <PurchaseView data={data} /> : null}
