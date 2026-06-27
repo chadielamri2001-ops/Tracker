@@ -30,26 +30,44 @@ function round2(value: number) {
 export async function getAnalytics(): Promise<AnalyticsSummary> {
   await requireUser();
 
-  // Omzet + transacties per dag uit Sale (geen join → geen fan-out van bedragen).
-  const salesByDay = await prisma.$queryRawUnsafe<Array<{ date: string; omzet: number; transacties: number }>>(
-    `SELECT to_char(${TZ_DAY}, 'YYYY-MM-DD') AS date,
-            COALESCE(SUM("bedrag"), 0)::float8 AS omzet,
-            COUNT(*)::int AS transacties
-     FROM "Sale"
-     GROUP BY 1
-     ORDER BY 1 ASC`
-  );
-
-  // Stuks + inkoopkosten per dag uit SaleItem (aparte query om dubbeltelling te voorkomen).
-  const itemsByDay = await prisma.$queryRawUnsafe<Array<{ date: string; stuks: number; cost: number }>>(
-    `SELECT to_char(date_trunc('day', s."datum" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Amsterdam'), 'YYYY-MM-DD') AS date,
-            COALESCE(SUM(si."aantal"), 0)::int AS stuks,
-            COALESCE(SUM(si."aantal" * v."inkoopPrijs"), 0)::float8 AS cost
-     FROM "SaleItem" si
-     JOIN "Sale" s ON s."id" = si."saleId"
-     JOIN "Variant" v ON v."id" = si."variantId"
-     GROUP BY 1`
-  );
+  // Alle vier de aggregatie-queries zijn onafhankelijk → parallel uitvoeren
+  // i.p.v. achter elkaar, scheelt op een externe database fors aan wachttijd.
+  const [salesByDay, itemsByDay, velocityRows, paymentRows] = await Promise.all([
+    // Omzet + transacties per dag uit Sale (geen join → geen fan-out van bedragen).
+    prisma.$queryRawUnsafe<Array<{ date: string; omzet: number; transacties: number }>>(
+      `SELECT to_char(${TZ_DAY}, 'YYYY-MM-DD') AS date,
+              COALESCE(SUM("bedrag"), 0)::float8 AS omzet,
+              COUNT(*)::int AS transacties
+       FROM "Sale"
+       GROUP BY 1
+       ORDER BY 1 ASC`
+    ),
+    // Stuks + inkoopkosten per dag uit SaleItem (aparte query om dubbeltelling te voorkomen).
+    prisma.$queryRawUnsafe<Array<{ date: string; stuks: number; cost: number }>>(
+      `SELECT to_char(date_trunc('day', s."datum" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Amsterdam'), 'YYYY-MM-DD') AS date,
+              COALESCE(SUM(si."aantal"), 0)::int AS stuks,
+              COALESCE(SUM(si."aantal" * v."inkoopPrijs"), 0)::float8 AS cost
+       FROM "SaleItem" si
+       JOIN "Sale" s ON s."id" = si."saleId"
+       JOIN "Variant" v ON v."id" = si."variantId"
+       GROUP BY 1`
+    ),
+    // Verkoopsnelheid per variant (stuks/dag) over de laatste 30 dagen.
+    prisma.$queryRawUnsafe<Array<{ variantId: string; qty: number }>>(
+      `SELECT si."variantId" AS "variantId", COALESCE(SUM(si."aantal"), 0)::int AS qty
+       FROM "SaleItem" si
+       JOIN "Sale" s ON s."id" = si."saleId"
+       WHERE s."datum" >= (now() - interval '30 days')
+       GROUP BY si."variantId"`
+    ),
+    // Omzet + aantal betalingen per betaalwijze (volledige historie), op basis van
+    // de echte betaaldelen — zo tellen gesplitste betalingen per methode correct mee.
+    prisma.$queryRawUnsafe<Array<{ method: PaymentMethod; omzet: number; count: number }>>(
+      `SELECT "method" AS method, COALESCE(SUM("bedrag"), 0)::float8 AS omzet, COUNT(*)::int AS count
+       FROM "Payment"
+       GROUP BY 1`
+    )
+  ]);
 
   const itemsByDate = new Map(itemsByDay.map((row) => [row.date, row]));
   const days: DayBucket[] = salesByDay.map((row) => {
@@ -84,24 +102,9 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
     if (!worstDay || day.omzet < worstDay.omzet) worstDay = day;
   }
 
-  // Verkoopsnelheid per variant (stuks/dag) over de laatste 30 dagen.
-  const velocityRows = await prisma.$queryRawUnsafe<Array<{ variantId: string; qty: number }>>(
-    `SELECT si."variantId" AS "variantId", COALESCE(SUM(si."aantal"), 0)::int AS qty
-     FROM "SaleItem" si
-     JOIN "Sale" s ON s."id" = si."saleId"
-     WHERE s."datum" >= (now() - interval '30 days')
-     GROUP BY si."variantId"`
-  );
   const velocity: Record<string, number> = {};
   for (const row of velocityRows) velocity[row.variantId] = row.qty / 30;
 
-  // Omzet + aantal betalingen per betaalwijze (volledige historie), op basis van
-  // de echte betaaldelen — zo tellen gesplitste betalingen per methode correct mee.
-  const paymentRows = await prisma.$queryRawUnsafe<Array<{ method: PaymentMethod; omzet: number; count: number }>>(
-    `SELECT "method" AS method, COALESCE(SUM("bedrag"), 0)::float8 AS omzet, COUNT(*)::int AS count
-     FROM "Payment"
-     GROUP BY 1`
-  );
   const paymentSplit: PaymentSplit[] = paymentRows.map((row) => ({ method: row.method, omzet: round2(row.omzet), count: row.count }));
 
   return { allTime, days, bestDay, worstDay, velocity, paymentSplit };
