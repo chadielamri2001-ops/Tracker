@@ -1,9 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
   applicationName: "Tracker",
@@ -29,7 +26,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Nonce van de proxy/middleware (CSP) zodat het inline thema-script niet wordt geblokkeerd.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
-    <html lang="nl" className={inter.variable} suppressHydrationWarning>
+    <html lang="nl" suppressHydrationWarning>
       <body>
         <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeScript }} />
         {children}
