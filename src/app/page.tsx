@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getTrackerData } from "@/server/data";
+import { getAnalytics } from "@/server/analytics";
 import { TrackerApp } from "@/components/tracker-app";
 
 export default async function HomePage() {
@@ -8,5 +9,6 @@ export default async function HomePage() {
   if (!session) redirect("/login");
 
   const data = await getTrackerData();
-  return <TrackerApp data={data} userEmail={session.user.email || "gebruiker"} />;
+  const analytics = await getAnalytics();
+  return <TrackerApp data={data} analytics={analytics} userEmail={session.user.email || "gebruiker"} />;
 }

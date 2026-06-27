@@ -3,8 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Runtime: Supabase transaction-pooler (poort 6543, ?pgbouncer=true) — veilig voor
+  // serverless (Vercel). Migraties/db push gebruiken de directe verbinding (poort 5432).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -29,6 +32,11 @@ enum SaleKind {
   MIX
 }
 
+enum ProductType {
+  SNUS
+  VAPE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -41,6 +49,7 @@ model User {
 
 model Variant {
   id             String     @id @default(cuid())
+  productType    ProductType @default(SNUS)
   merk           String
   smaak          String
   voorraad       Int        @default(0)
@@ -52,8 +61,9 @@ model Variant {
   purchases      Purchase[]
   saleItems      SaleItem[]
 
-  @@unique([merk, smaak])
+  @@unique([productType, merk, smaak])
   @@index([merk])
+  @@index([productType])
 }
 
 model Purchase {
@@ -82,14 +92,28 @@ model Sale {
   betaalwijze  PaymentMethod
   klantNaam    String?
   pofBetaald   Boolean       @default(false)
+  gratis       Boolean       @default(false)
   paidAt       DateTime?
   createdAt    DateTime      @default(now())
   items        SaleItem[]
+  payments     Payment[]
   debt         Debt?
 
   @@index([datum])
   @@index([betaalwijze])
   @@index([kind])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  saleId    String
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  method    PaymentMethod
+  bedrag    Decimal       @db.Decimal(12, 2)
+  createdAt DateTime      @default(now())
+
+  @@index([saleId])
+  @@index([method])
 }
 
 model SaleItem {

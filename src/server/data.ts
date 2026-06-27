@@ -7,25 +7,24 @@ export async function getTrackerData() {
   await requireUser();
   await prisma.concept.deleteMany({ where: { expiresAt: { lte: new Date() } } });
 
-  const [variants, purchases, sales, debts, concepts, prices] = await Promise.all([
-    prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] }),
-    prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 200 }),
-    prisma.sale.findMany({
-      include: { items: { include: { variant: true } } },
-      orderBy: { datum: "desc" },
-      take: 300
-    }),
-    prisma.debt.findMany({
-      include: { sale: { include: { items: { include: { variant: true } } } } },
-      orderBy: [{ betaald: "asc" }, { datum: "desc" }]
-    }),
-    prisma.concept.findMany({ orderBy: { createdAt: "desc" } }),
-    prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] })
-  ]);
+  const variants = await prisma.variant.findMany({ orderBy: [{ merk: "asc" }, { smaak: "asc" }] });
+  const purchases = await prisma.purchase.findMany({ include: { variant: true }, orderBy: { datum: "desc" }, take: 2000 });
+  const sales = await prisma.sale.findMany({
+    include: { items: { include: { variant: true } }, payments: { orderBy: { createdAt: "asc" } } },
+    orderBy: { datum: "desc" },
+    take: 5000
+  });
+  const debts = await prisma.debt.findMany({
+    include: { sale: { include: { items: { include: { variant: true } } } } },
+    orderBy: [{ betaald: "asc" }, { datum: "desc" }]
+  });
+  const concepts = await prisma.concept.findMany({ orderBy: { createdAt: "desc" } });
+  const prices = await prisma.priceConfig.findMany({ orderBy: [{ kind: "asc" }, { quantity: "asc" }] });
 
   return trackerDataSchema.parse({
     variants: variants.map((variant) => ({
       id: variant.id,
+      productType: variant.productType,
       merk: variant.merk,
       smaak: variant.smaak,
       voorraad: variant.voorraad,
@@ -35,6 +34,7 @@ export async function getTrackerData() {
     })),
     purchases: purchases.map((purchase) => ({
       id: purchase.id,
+      productType: purchase.variant.productType,
       datum: purchase.datum.toISOString(),
       merk: purchase.variant.merk,
       smaak: purchase.variant.smaak,
@@ -53,10 +53,18 @@ export async function getTrackerData() {
       bezorgkosten: sale.bezorgkosten === null ? null : Number(sale.bezorgkosten),
       rolAantal: sale.rolAantal,
       klantNaam: sale.klantNaam,
+      pofBetaald: sale.pofBetaald,
+      gratis: sale.gratis,
+      payments: sale.gratis
+        ? []
+        : sale.payments.length
+          ? sale.payments.map((payment) => ({ method: payment.method as PaymentMethod, bedrag: Number(payment.bedrag) }))
+          : [{ method: sale.betaalwijze as PaymentMethod, bedrag: Number(sale.bedrag) }],
       items: sale.items.map((item) => ({
         id: item.id,
         variantId: item.variantId,
         merk: item.variant.merk,
+        productType: item.variant.productType,
         smaak: item.variant.smaak,
         aantal: item.aantal,
         bedrag: Number(item.bedrag)
@@ -73,6 +81,7 @@ export async function getTrackerData() {
             kind: debt.sale.kind,
             items: debt.sale.items.map((item) => ({
               merk: item.variant.merk,
+              productType: item.variant.productType,
               smaak: item.variant.smaak,
               aantal: item.aantal
             }))
@@ -80,11 +89,11 @@ export async function getTrackerData() {
         : null
     })),
     concepts: concepts.map((concept) => {
-      const items = concept.items as Array<{ variantId: string; merk: string; smaak: string; aantal: number }>;
+      const items = concept.items as Array<{ variantId: string; productType?: string; merk: string; smaak: string; aantal: number }>;
       return {
         id: concept.id,
         kind: concept.kind,
-        items,
+        items: items.map((item) => ({ ...item, productType: item.productType ?? "SNUS" })),
         bedrag: Number(concept.bedrag),
         basisBedrag: concept.basisBedrag === null ? null : Number(concept.basisBedrag),
         bezorgkosten: concept.bezorgkosten === null ? null : Number(concept.bezorgkosten),

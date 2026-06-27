@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, PaymentMethod, PriceKind } from "@prisma/client";
+import { Prisma, PrismaClient, PaymentMethod, PriceKind, ProductType } from "@prisma/client";
 import fs from "node:fs/promises";
 import { z } from "zod";
 
@@ -104,7 +104,7 @@ async function main() {
   await prisma.$transaction(async (tx) => {
     for (const variant of Object.values(parsed.state.varianten)) {
       await tx.variant.upsert({
-        where: { merk_smaak: { merk: variant.merk, smaak: variant.smaak } },
+        where: { productType_merk_smaak: { productType: ProductType.SNUS, merk: variant.merk, smaak: variant.smaak } },
         update: {
           voorraad: variant.voorraad,
           inkoopPrijs: new Prisma.Decimal(variant.inkoop_prijs.toFixed(4)),
@@ -112,6 +112,7 @@ async function main() {
           totaalOmzet: new Prisma.Decimal(variant.totaal_omzet.toFixed(2))
         },
         create: {
+          productType: ProductType.SNUS,
           merk: variant.merk,
           smaak: variant.smaak,
           voorraad: variant.voorraad,
@@ -128,9 +129,10 @@ async function main() {
       const prijsPerRol = purchase.prijsPerRol || purchase.prijs * 10;
       const prijsPerStuk = purchase.prijs || prijsPerRol / 10;
       const variant = await tx.variant.upsert({
-        where: { merk_smaak: { merk: purchase.merk, smaak: purchase.smaak } },
+        where: { productType_merk_smaak: { productType: ProductType.SNUS, merk: purchase.merk, smaak: purchase.smaak } },
         update: {},
         create: {
+          productType: ProductType.SNUS,
           merk: purchase.merk,
           smaak: purchase.smaak,
           inkoopPrijs: new Prisma.Decimal(prijsPerStuk.toFixed(4))
@@ -163,9 +165,9 @@ async function main() {
         const totalQty = sale.items.reduce((sum, saleItem) => sum + saleItem.qty, 0) || 1;
         const itemAmount = sale.totaal * (item.qty / totalQty);
         const variant = await tx.variant.upsert({
-          where: { merk_smaak: { merk: item.merk, smaak: item.smaak } },
+          where: { productType_merk_smaak: { productType: ProductType.SNUS, merk: item.merk, smaak: item.smaak } },
           update: {},
-          create: { merk: item.merk, smaak: item.smaak }
+          create: { productType: ProductType.SNUS, merk: item.merk, smaak: item.smaak }
         });
         await tx.saleItem.create({
           data: {

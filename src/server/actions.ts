@@ -1,24 +1,58 @@
 "use server";
 
-import { PaymentMethod, PriceKind, Prisma, SaleKind } from "@prisma/client";
+import { PaymentMethod, PriceKind, Prisma, ProductType, SaleKind } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import type { ActionState } from "@/lib/action-state";
 import { assertRateLimit } from "@/lib/rate-limit";
 import { assertSameOrigin, clientIdentifier } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import {
   debtInputSchema,
+  giveawayInputSchema,
   idSchema,
   multiSaleInputSchema,
   nameSchema,
+  paymentSplitInputSchema,
   priceInputSchema,
   purchaseInputSchema,
   purchaseRowsInputSchema,
-  saleInputSchema
+  saleInputSchema,
+  stockAdjustInputSchema
 } from "@/lib/validators";
 
 const BAKJES_PER_ROL = 10;
+
+// Voert de body van een action uit en vertaalt fouten naar een ActionState.
+// Onze eigen validatie-/voorraadfouten gooien een gewone Error (constructor ===
+// Error) met een Nederlandse boodschap die veilig getoond mag worden. Alles
+// anders (bv. een Prisma-fout) is onverwacht en krijgt een generieke tekst —
+// belangrijk omdat Next.js de message van geworpen server-action-fouten in
+// productie sowieso wegredigeert; daarom geven we de melding terug i.p.v. te gooien.
+async function runAction(fn: () => Promise<void>): Promise<ActionState> {
+  try {
+    await fn();
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof Error && error.constructor === Error) {
+      return { ok: false, error: error.message };
+    }
+    console.error("Onverwachte fout in server action:", error);
+    return { ok: false, error: "Er ging iets mis. Probeer het opnieuw." };
+  }
+}
+
+// Valideert invoer en gooit bij mislukking een gewone Error met een leesbare
+// melding. Een rauwe ZodError heeft een getter-only `message`, waardoor Next.js
+// crasht met "Cannot set property message of [object Object]".
+function parse<T extends z.ZodTypeAny>(schema: T, data: unknown): z.infer<T> {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? "Controleer de ingevulde gegevens.");
+  }
+  return result.data;
+}
 
 async function guardWrite(scope: string) {
   await assertSameOrigin();
@@ -38,6 +72,18 @@ const formItemsSchema = z
   })
   .pipe(z.array(z.object({ variantId: z.string().cuid(), aantal: z.coerce.number().int().min(1).max(1000) })).min(1).max(25));
 
+const formPaymentsSchema = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Ongeldige betaalgegevens." });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.array(paymentSplitInputSchema).max(3));
+
 const formPurchaseRowsSchema = z
   .string()
   .transform((value, ctx) => {
@@ -54,8 +100,30 @@ function decimal(value: number, decimals = 2) {
   return new Prisma.Decimal(value.toFixed(decimals));
 }
 
-function saleDescriptionItems(items: Array<{ variantId: string; merk: string; smaak: string; aantal: number }>) {
-  return items.map((item) => ({ variantId: item.variantId, merk: item.merk, smaak: item.smaak, aantal: item.aantal }));
+function round2(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+// Bepaalt de effectieve betalingen: gebruik de opgegeven splitsing, of val terug
+// op één betaling met de primaire betaalwijze voor het volledige bedrag (oude flow).
+function resolvePayments(
+  bedrag: number,
+  betaalwijze: PaymentMethod,
+  payments?: Array<{ method: PaymentMethod; bedrag: number }>
+) {
+  const effective = payments && payments.length ? payments : [{ method: betaalwijze, bedrag }];
+  const som = round2(effective.reduce((sum, payment) => sum + payment.bedrag, 0));
+  if (Math.abs(som - round2(bedrag)) > 0.01) {
+    throw new Error(`Som van de betalingen (${som.toFixed(2)}) is niet gelijk aan het verkoopbedrag (${round2(bedrag).toFixed(2)}).`);
+  }
+  const pofDeel = round2(effective.filter((payment) => payment.method === PaymentMethod.POF).reduce((sum, payment) => sum + payment.bedrag, 0));
+  // Primaire betaalwijze (voor de bestaande Sale.betaalwijze-kolom) = grootste deel.
+  const primair = [...effective].sort((a, b) => b.bedrag - a.bedrag)[0]?.method ?? betaalwijze;
+  return { effective, pofDeel, primair };
+}
+
+function saleDescriptionItems(items: Array<{ variantId: string; productType: ProductType; merk: string; smaak: string; aantal: number }>) {
+  return items.map((item) => ({ variantId: item.variantId, productType: item.productType, merk: item.merk, smaak: item.smaak, aantal: item.aantal }));
 }
 
 async function createSaleFromInput(
@@ -68,12 +136,20 @@ async function createSaleFromInput(
     bezorgkosten?: number;
     rolAantal?: number;
     betaalwijze: PaymentMethod;
+    payments?: Array<{ method: PaymentMethod; bedrag: number }>;
+    gratis?: boolean;
     klantNaam?: string;
     datum?: Date;
   }
 ) {
-  if (input.betaalwijze === PaymentMethod.POF && !input.klantNaam) {
-    throw new Error("Naam is verplicht bij pof.");
+  const gratis = input.gratis ?? false;
+  // Gratis weggeven: €0 omzet, geen betaaldelen en geen pofschuld. De inkoopkosten
+  // tellen wél mee (via de saleItems), zodat de winst correct daalt.
+  const { effective, pofDeel, primair } = gratis
+    ? { effective: [] as Array<{ method: PaymentMethod; bedrag: number }>, pofDeel: 0, primair: input.betaalwijze }
+    : resolvePayments(input.bedrag, input.betaalwijze, input.payments);
+  if (pofDeel > 0 && !input.klantNaam) {
+    throw new Error("Naam is verplicht bij (gedeeltelijke) pof.");
   }
 
   const variants = await tx.variant.findMany({
@@ -97,11 +173,21 @@ async function createSaleFromInput(
       basisBedrag: input.basisBedrag === undefined ? null : decimal(input.basisBedrag),
       bezorgkosten: input.bezorgkosten === undefined ? null : decimal(input.bezorgkosten),
       rolAantal: input.rolAantal ?? null,
-      betaalwijze: input.betaalwijze,
-      klantNaam: input.betaalwijze === PaymentMethod.POF ? input.klantNaam : null,
+      betaalwijze: primair,
+      // Bewaar de klantnaam zodra die is ingevuld (ook bij cash/tikkie), zodat de
+      // stempelkaart op elke verkoop kan sparen — niet alleen bij pof.
+      klantNaam: input.klantNaam ?? null,
+      gratis,
       datum: input.datum
     }
   });
+
+  // Betaaldelen vastleggen (cash/tikkie/pof). Bij één betaalwijze is dit één rij.
+  for (const payment of effective) {
+    await tx.payment.create({
+      data: { saleId: sale.id, method: payment.method, bedrag: decimal(payment.bedrag) }
+    });
+  }
 
   for (const item of input.items) {
     const aandeel = input.bedrag * (item.aantal / totalQty);
@@ -123,11 +209,12 @@ async function createSaleFromInput(
     });
   }
 
-  if (input.betaalwijze === PaymentMethod.POF && input.klantNaam) {
+  // Alleen het pof-deel komt als openstaand bedrag op de poflijst.
+  if (pofDeel > 0 && input.klantNaam) {
     await tx.debt.create({
       data: {
         naam: input.klantNaam,
-        bedrag: decimal(input.bedrag),
+        bedrag: decimal(pofDeel),
         datum: input.datum,
         saleId: sale.id
       }
@@ -157,8 +244,9 @@ async function reverseAndDeleteSale(tx: Prisma.TransactionClient, id: string) {
 }
 
 function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
-  const items = formItemsSchema.parse(String(formData.get("items") || "[]"));
-  return multiSaleInputSchema.parse({
+  const items = parse(formItemsSchema, String(formData.get("items") || "[]"));
+  const payments = parse(formPaymentsSchema, String(formData.get("payments") || "[]"));
+  const base = parse(multiSaleInputSchema, {
     kind: formData.get("kind") || fallbackKind,
     items,
     bedrag: formData.get("bedrag"),
@@ -170,13 +258,18 @@ function parseMultiSaleForm(formData: FormData, fallbackKind: SaleKind) {
     datum: formData.get("datum"),
     concept: formData.get("concept")
   });
+  return { ...base, payments };
 }
 
 async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.infer<typeof purchaseInputSchema>) {
-  const aantal = input.rollen * BAKJES_PER_ROL;
-  const prijsPerStuk = input.prijsPerRol / BAKJES_PER_ROL;
+  // Voorraad in pakjes = rollen × 10 + losse pakjes. Prijs per pakje volgt uit de
+  // rolprijs (1 rol = 10 pakjes); losse pakjes kosten datzelfde bedrag per stuk.
+  const isVape = input.productType === ProductType.VAPE;
+  const aantal = isVape ? input.stuks : input.rollen * BAKJES_PER_ROL + input.losse;
+  const prijsPerStuk = isVape ? input.prijsPerStuk! : input.prijsPerRol! / BAKJES_PER_ROL;
+  const prijsPerRol = isVape ? input.prijsPerStuk! : input.prijsPerRol!;
   const existing = await tx.variant.findUnique({
-    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } }
+    where: { productType_merk_smaak: { productType: input.productType, merk: input.merk, smaak: input.smaak } }
   });
 
   const nextInkoopPrijs = existing?.voorraad
@@ -184,12 +277,13 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
     : prijsPerStuk;
 
   const variant = await tx.variant.upsert({
-    where: { merk_smaak: { merk: input.merk, smaak: input.smaak } },
+    where: { productType_merk_smaak: { productType: input.productType, merk: input.merk, smaak: input.smaak } },
     update: {
       voorraad: { increment: aantal },
       inkoopPrijs: new Prisma.Decimal(nextInkoopPrijs.toFixed(4))
     },
     create: {
+      productType: input.productType,
       merk: input.merk,
       smaak: input.smaak,
       voorraad: aantal,
@@ -200,9 +294,9 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
   await tx.purchase.create({
     data: {
       variantId: variant.id,
-      rollen: input.rollen,
+      rollen: isVape ? 0 : input.rollen,
       aantal,
-      prijsPerRol: new Prisma.Decimal(input.prijsPerRol.toFixed(2)),
+      prijsPerRol: new Prisma.Decimal(prijsPerRol.toFixed(2)),
       prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
     }
   });
@@ -210,7 +304,7 @@ async function createPurchaseFromInput(tx: Prisma.TransactionClient, input: z.in
 
 export async function addPurchase(formData: FormData) {
   await guardWrite("write:purchase");
-  const input = purchaseInputSchema.parse(Object.fromEntries(formData));
+  const input = parse(purchaseInputSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     await createPurchaseFromInput(tx, input);
@@ -219,22 +313,38 @@ export async function addPurchase(formData: FormData) {
   revalidatePath("/");
 }
 
-export async function addPurchases(formData: FormData) {
-  await guardWrite("write:purchase");
-  const rows = formPurchaseRowsSchema.parse(String(formData.get("rows") || "[]"));
+export async function addPurchases(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:purchase");
+    const rows = parse(formPurchaseRowsSchema, String(formData.get("rows") || "[]"));
 
-  await prisma.$transaction(async (tx) => {
-    for (const row of rows) {
-      await createPurchaseFromInput(tx, row);
-    }
+    await prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        await createPurchaseFromInput(tx, row);
+      }
+    });
+
+    revalidatePath("/");
   });
+}
 
-  revalidatePath("/");
+export async function adjustStock(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:stock");
+    const input = parse(stockAdjustInputSchema, Object.fromEntries(formData));
+
+    await prisma.variant.update({
+      where: { id: input.variantId },
+      data: { voorraad: input.mode === "set" ? input.aantal : { increment: input.aantal } }
+    });
+
+    revalidatePath("/");
+  });
 }
 
 export async function addSale(formData: FormData) {
   await guardWrite("write:sale");
-  const input = saleInputSchema.parse(Object.fromEntries(formData));
+  const input = parse(saleInputSchema, Object.fromEntries(formData));
 
   await prisma.$transaction(async (tx) => {
     await createSaleFromInput(tx, {
@@ -252,19 +362,42 @@ export async function addSale(formData: FormData) {
   revalidatePath("/");
 }
 
-export async function addMultiSale(formData: FormData) {
-  await guardWrite("write:sale");
-  const input = parseMultiSaleForm(formData, SaleKind.MULTI);
+export async function addMultiSale(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:sale");
+    const input = parseMultiSaleForm(formData, SaleKind.MULTI);
 
-  if (input.concept) {
-    await createConcept(input);
-    return;
-  }
+    if (input.concept) {
+      await createConcept(input);
+      return;
+    }
 
-  await prisma.$transaction(async (tx) => {
-    await createSaleFromInput(tx, input);
+    await prisma.$transaction(async (tx) => {
+      await createSaleFromInput(tx, input);
+    });
+    revalidatePath("/");
   });
-  revalidatePath("/");
+}
+
+export async function addGiveaway(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:sale");
+    const items = parse(formItemsSchema, String(formData.get("items") || "[]"));
+    const { datum, klantNaam } = parse(giveawayInputSchema, { datum: formData.get("datum"), klantNaam: formData.get("klantNaam") });
+
+    await prisma.$transaction(async (tx) => {
+      await createSaleFromInput(tx, {
+        kind: items.length > 1 ? SaleKind.MULTI : SaleKind.NORMAL,
+        items,
+        bedrag: 0,
+        gratis: true,
+        betaalwijze: PaymentMethod.CASH,
+        klantNaam,
+        datum
+      });
+    });
+    revalidatePath("/");
+  });
 }
 
 async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
@@ -273,7 +406,7 @@ async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
   const items = input.items.map((item) => {
     const variant = byId.get(item.variantId);
     if (!variant) throw new Error("Variant bestaat niet.");
-    return { variantId: item.variantId, merk: variant.merk, smaak: variant.smaak, aantal: item.aantal };
+    return { variantId: item.variantId, productType: variant.productType, merk: variant.merk, smaak: variant.smaak, aantal: item.aantal };
   });
   await prisma.concept.create({
     data: {
@@ -292,171 +425,193 @@ async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
   revalidatePath("/");
 }
 
-export async function confirmConcept(formData: FormData) {
-  await guardWrite("write:concept");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+export async function confirmConcept(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:concept");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
 
-  await prisma.$transaction(async (tx) => {
-    const concept = await tx.concept.findUnique({ where: { id } });
-    if (!concept) throw new Error("Concept bestaat niet.");
-    if (concept.expiresAt <= new Date()) {
+    await prisma.$transaction(async (tx) => {
+      const concept = await tx.concept.findUnique({ where: { id } });
+      if (!concept) throw new Error("Concept bestaat niet.");
+      if (concept.expiresAt <= new Date()) {
+        await tx.concept.delete({ where: { id } });
+        throw new Error("Concept is verlopen.");
+      }
+      const items = parse(
+        z.array(z.object({ variantId: z.string().cuid(), productType: z.nativeEnum(ProductType).default(ProductType.SNUS), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() })),
+        concept.items
+      ).map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
+      await createSaleFromInput(tx, {
+        kind: concept.kind,
+        items,
+        bedrag: Number(concept.bedrag),
+        basisBedrag: concept.basisBedrag === null ? undefined : Number(concept.basisBedrag),
+        bezorgkosten: concept.bezorgkosten === null ? undefined : Number(concept.bezorgkosten),
+        rolAantal: concept.rolAantal ?? undefined,
+        betaalwijze: concept.betaalwijze,
+        klantNaam: concept.klantNaam ?? undefined,
+        datum: concept.createdAt
+      });
       await tx.concept.delete({ where: { id } });
-      throw new Error("Concept is verlopen.");
-    }
-    const items = z
-      .array(z.object({ variantId: z.string().cuid(), aantal: z.number().int().positive(), merk: z.string(), smaak: z.string() }))
-      .parse(concept.items)
-      .map((item) => ({ variantId: item.variantId, aantal: item.aantal }));
-    await createSaleFromInput(tx, {
-      kind: concept.kind,
-      items,
-      bedrag: Number(concept.bedrag),
-      basisBedrag: concept.basisBedrag === null ? undefined : Number(concept.basisBedrag),
-      bezorgkosten: concept.bezorgkosten === null ? undefined : Number(concept.bezorgkosten),
-      rolAantal: concept.rolAantal ?? undefined,
-      betaalwijze: concept.betaalwijze,
-      klantNaam: concept.klantNaam ?? undefined,
-      datum: concept.createdAt
     });
-    await tx.concept.delete({ where: { id } });
+
+    revalidatePath("/");
   });
-
-  revalidatePath("/");
 }
 
-export async function deleteConcept(formData: FormData) {
-  await guardWrite("write:concept-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
-  await prisma.concept.delete({ where: { id } });
-  revalidatePath("/");
-}
-
-export async function deleteSale(formData: FormData) {
-  await guardWrite("write:sale-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
-
-  await prisma.$transaction(async (tx) => {
-    await reverseAndDeleteSale(tx, id);
+export async function deleteConcept(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:concept-delete");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
+    await prisma.concept.delete({ where: { id } });
+    revalidatePath("/");
   });
-
-  revalidatePath("/");
 }
 
-export async function updateSale(formData: FormData) {
-  await guardWrite("write:sale-update");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
-  const input = parseMultiSaleForm(formData, SaleKind.MULTI);
+export async function deleteSale(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:sale-delete");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
 
-  if (input.concept) throw new Error("Een bestaande verkoop kan niet als concept worden opgeslagen.");
+    await prisma.$transaction(async (tx) => {
+      await reverseAndDeleteSale(tx, id);
+    });
 
-  await prisma.$transaction(async (tx) => {
-    await reverseAndDeleteSale(tx, id);
-    await createSaleFromInput(tx, input);
+    revalidatePath("/");
   });
-
-  revalidatePath("/");
 }
 
-export async function deletePurchase(formData: FormData) {
-  await guardWrite("write:purchase-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
+export async function updateSale(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:sale-update");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
+    const input = parseMultiSaleForm(formData, SaleKind.MULTI);
 
-  await prisma.$transaction(async (tx) => {
-    const purchase = await tx.purchase.findUnique({ where: { id }, include: { variant: true } });
-    if (!purchase) throw new Error("Inkoop bestaat niet.");
-    if (purchase.variant.voorraad < purchase.aantal) {
-      throw new Error("Deze inkoop kan niet veilig verwijderd worden: voorraad is al deels verkocht.");
-    }
-    await tx.purchase.delete({ where: { id } });
-    const remaining = await tx.purchase.findMany({ where: { variantId: purchase.variantId }, orderBy: { datum: "asc" } });
-    const totalQty = remaining.reduce((sum, row) => sum + row.aantal, 0);
-    const avg = totalQty
-      ? remaining.reduce((sum, row) => sum + Number(row.prijsPerStuk) * row.aantal, 0) / totalQty
-      : 0;
-    await tx.variant.update({
-      where: { id: purchase.variantId },
+    if (input.concept) throw new Error("Een bestaande verkoop kan niet als concept worden opgeslagen.");
+
+    await prisma.$transaction(async (tx) => {
+      await reverseAndDeleteSale(tx, id);
+      await createSaleFromInput(tx, input);
+    });
+
+    revalidatePath("/");
+  });
+}
+
+export async function deletePurchase(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:purchase-delete");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
+
+    await prisma.$transaction(async (tx) => {
+      const purchase = await tx.purchase.findUnique({ where: { id }, include: { variant: true } });
+      if (!purchase) throw new Error("Inkoop bestaat niet.");
+      if (purchase.variant.voorraad < purchase.aantal) {
+        throw new Error(
+          `Kan deze inkoop niet verwijderen: er zijn nog ${purchase.variant.voorraad} van de ${purchase.aantal} pakjes op voorraad, de rest is al verkocht. Pas eerst de voorraad aan of verwijder de bijbehorende verkoop.`
+        );
+      }
+      await tx.purchase.delete({ where: { id } });
+      const remaining = await tx.purchase.findMany({ where: { variantId: purchase.variantId }, orderBy: { datum: "asc" } });
+      const totalQty = remaining.reduce((sum, row) => sum + row.aantal, 0);
+      const avg = totalQty
+        ? remaining.reduce((sum, row) => sum + Number(row.prijsPerStuk) * row.aantal, 0) / totalQty
+        : 0;
+      await tx.variant.update({
+        where: { id: purchase.variantId },
+        data: {
+          voorraad: { decrement: purchase.aantal },
+          inkoopPrijs: decimal(avg, 4)
+        }
+      });
+    });
+
+    revalidatePath("/");
+  });
+}
+
+export async function addDebt(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:debt");
+    const input = parse(debtInputSchema, Object.fromEntries(formData));
+    await prisma.debt.create({
       data: {
-        voorraad: { decrement: purchase.aantal },
-        inkoopPrijs: decimal(avg, 4)
+        naam: input.naam,
+        bedrag: new Prisma.Decimal(input.bedrag.toFixed(2))
       }
     });
+    revalidatePath("/");
   });
-
-  revalidatePath("/");
 }
 
-export async function addDebt(formData: FormData) {
-  await guardWrite("write:debt");
-  const input = debtInputSchema.parse(Object.fromEntries(formData));
-  await prisma.debt.create({
-    data: {
-      naam: input.naam,
-      bedrag: new Prisma.Decimal(input.bedrag.toFixed(2))
+export async function markDebtPaid(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:debt");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
+    const now = new Date();
+    const debt = await prisma.debt.update({
+      where: { id },
+      data: { betaald: true, paidAt: now },
+      include: { sale: true }
+    });
+    if (debt.saleId) {
+      await prisma.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } });
     }
+    revalidatePath("/");
   });
-  revalidatePath("/");
 }
 
-export async function markDebtPaid(formData: FormData) {
-  await guardWrite("write:debt");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
-  const now = new Date();
-  const debt = await prisma.debt.update({
-    where: { id },
-    data: { betaald: true, paidAt: now },
-    include: { sale: true }
-  });
-  if (debt.saleId) {
-    await prisma.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } });
-  }
-  revalidatePath("/");
-}
-
-export async function markAllDebtsPaid(formData: FormData) {
-  await guardWrite("write:debt");
-  const { naam } = nameSchema.parse(Object.fromEntries(formData));
-  const now = new Date();
-  const debts = await prisma.debt.findMany({ where: { naam, betaald: false } });
-  await prisma.$transaction([
-    prisma.debt.updateMany({ where: { naam, betaald: false }, data: { betaald: true, paidAt: now } }),
-    prisma.sale.updateMany({
-      where: { id: { in: debts.map((debt) => debt.saleId).filter((id): id is string => Boolean(id)) } },
-      data: { pofBetaald: true, paidAt: now }
-    })
-  ]);
-  revalidatePath("/");
-}
-
-export async function deleteDebt(formData: FormData) {
-  await guardWrite("write:debt-delete");
-  const { id } = idSchema.parse(Object.fromEntries(formData));
-  await prisma.debt.delete({ where: { id } });
-  revalidatePath("/");
-}
-
-export async function savePrices(formData: FormData) {
-  await guardWrite("write:prices");
-  const rawPrices: Array<{ kind: PriceKind; quantity: number | null; price: FormDataEntryValue | null }> = ["1", "2", "3", "4", "5", "10"].map((quantity) => ({
-    kind: PriceKind.STANDARD,
-    quantity: Number(quantity),
-    price: formData.get(`price-${quantity}`)
-  }));
-  rawPrices.push({ kind: PriceKind.MIX, quantity: null, price: formData.get("price-mix") });
-  const input = priceInputSchema.parse({ prices: rawPrices });
-
-  await prisma.$transaction(
-    input.prices.map((row) =>
-      prisma.priceConfig.upsert({
-        where: { key: row.kind === PriceKind.MIX ? "mix" : `standard:${row.quantity}` },
-        update: { price: new Prisma.Decimal(row.price.toFixed(2)) },
-        create: {
-          key: row.kind === PriceKind.MIX ? "mix" : `standard:${row.quantity}`,
-          kind: row.kind,
-          quantity: row.quantity,
-          price: new Prisma.Decimal(row.price.toFixed(2))
-        }
+export async function markAllDebtsPaid(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:debt");
+    const { naam } = parse(nameSchema, Object.fromEntries(formData));
+    const now = new Date();
+    const debts = await prisma.debt.findMany({ where: { naam, betaald: false } });
+    await prisma.$transaction([
+      prisma.debt.updateMany({ where: { naam, betaald: false }, data: { betaald: true, paidAt: now } }),
+      prisma.sale.updateMany({
+        where: { id: { in: debts.map((debt) => debt.saleId).filter((id): id is string => Boolean(id)) } },
+        data: { pofBetaald: true, paidAt: now }
       })
-    )
-  );
-  revalidatePath("/");
+    ]);
+    revalidatePath("/");
+  });
+}
+
+export async function deleteDebt(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:debt-delete");
+    const { id } = parse(idSchema, Object.fromEntries(formData));
+    await prisma.debt.delete({ where: { id } });
+    revalidatePath("/");
+  });
+}
+
+export async function savePrices(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:prices");
+    const rawPrices: Array<{ kind: PriceKind; quantity: number | null; price: FormDataEntryValue | null }> = ["1", "2", "3", "4", "5", "10"].map((quantity) => ({
+      kind: PriceKind.STANDARD,
+      quantity: Number(quantity),
+      price: formData.get(`price-${quantity}`)
+    }));
+    rawPrices.push({ kind: PriceKind.MIX, quantity: null, price: formData.get("price-mix") });
+    const input = parse(priceInputSchema, { prices: rawPrices });
+
+    await prisma.$transaction(
+      input.prices.map((row) =>
+        prisma.priceConfig.upsert({
+          where: { key: row.kind === PriceKind.MIX ? "mix" : `standard:${row.quantity}` },
+          update: { price: new Prisma.Decimal(row.price.toFixed(2)) },
+          create: {
+            key: row.kind === PriceKind.MIX ? "mix" : `standard:${row.quantity}`,
+            kind: row.kind,
+            quantity: row.quantity,
+            price: new Prisma.Decimal(row.price.toFixed(2))
+          }
+        })
+      )
+    );
+    revalidatePath("/");
+  });
 }
