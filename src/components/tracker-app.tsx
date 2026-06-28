@@ -43,8 +43,8 @@ import {
   savePrices,
   updateSale
 } from "@/server/actions";
-import type { ActionState, AiResult } from "@/lib/action-state";
-import { anomalyScan, askInsights, promoAdvice, weeklySummary } from "@/server/ai";
+import type { ActionState } from "@/lib/action-state";
+import { AiAssistant } from "./ai-assistant";
 import {
   clearanceSuggestions,
   dailySeries,
@@ -1072,7 +1072,7 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
       />
       {section === "dashboard" ? (
         <>
-          <AiInsights />
+          <AiAssistant />
           <div className="dashboard-grid">
             <div className="dashboard-main">
               <BusinessPulse data={data} />
@@ -1108,56 +1108,6 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
         </Panel>
       ) : null}
     </section>
-  );
-}
-
-function AiAnswer({ state }: { state: AiResult }) {
-  if (!state) return null;
-  if (!state.ok) return <p className="form-error" role="alert">{state.error}</p>;
-  return (
-    <div className="ai-answer" role="status">
-      {state.text.split("\n").map((line, index) => (line.trim() ? <p key={index}>{line}</p> : null))}
-    </div>
-  );
-}
-
-// AI-assistent: vraag-antwoord op de echte cijfers + on-demand samenvatting/advies/signalen.
-// Alles loopt via server actions (key blijft server-side); zonder key tonen de panelen een melding.
-function AiInsights() {
-  const [askState, askAction] = useActionState(askInsights, null);
-  const [sumState, sumAction] = useActionState(weeklySummary, null);
-  const [advState, advAction] = useActionState(promoAdvice, null);
-  const [anoState, anoAction] = useActionState(anomalyScan, null);
-  const [question, setQuestion] = useState("");
-  const chips = [
-    "Wat was mijn beste week?",
-    "Welke smaak loopt achteruit?",
-    "Hoeveel marge maak ik gemiddeld?",
-    "Op welke dag kan ik het best een actie doen?"
-  ];
-  return (
-    <Panel title="AI-assistent">
-      <form action={askAction} className="stack">
-        <div className="ai-input-row">
-          <input name="vraag" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Vraag iets over je cijfers…" maxLength={500} autoComplete="off" />
-          <SubmitButton pendingLabel="Denkt na…">Vraag</SubmitButton>
-        </div>
-        <div className="ai-chips">
-          {chips.map((chip) => (
-            <button type="button" key={chip} className="ai-chip" onClick={() => setQuestion(chip)}>{chip}</button>
-          ))}
-        </div>
-        <AiAnswer state={askState} />
-      </form>
-      <div className="ai-actions">
-        <form action={sumAction}><SubmitButton className="" pendingLabel="…">Weeksamenvatting</SubmitButton></form>
-        <form action={advAction}><SubmitButton className="" pendingLabel="…">Promo-advies</SubmitButton></form>
-        <form action={anoAction}><SubmitButton className="" pendingLabel="…">Signalen</SubmitButton></form>
-      </div>
-      <AiAnswer state={sumState} />
-      <AiAnswer state={advState} />
-      <AiAnswer state={anoState} />
-    </Panel>
   );
 }
 
