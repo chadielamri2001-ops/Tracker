@@ -1077,6 +1077,7 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
             <div className="dashboard-main">
               <BusinessPulse data={data} />
               <TrendChart data={data} />
+              <ForecastPanel data={data} />
             </div>
             <div className="dashboard-side">
               <Insights data={data} />
@@ -1084,7 +1085,6 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
               <ClearancePanel data={data} />
             </div>
           </div>
-          <ForecastPanel data={data} />
           <TopFlop analytics={analytics} period={period} />
         </>
       ) : null}
