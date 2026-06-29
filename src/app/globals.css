@@ -619,7 +619,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
   flex: 1;
   min-width: 0;
   width: 100%;
-  max-width: 1320px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: var(--space-8);
   padding-bottom: max(var(--space-10), calc(var(--space-8) + env(safe-area-inset-bottom)));
