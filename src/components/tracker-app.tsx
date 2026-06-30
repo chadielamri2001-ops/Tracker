@@ -28,6 +28,7 @@ import {
   IconWallet
 } from "./icons";
 import {
+  addDeal,
   addDebt,
   addGiveaway,
   addMultiSale,
@@ -104,7 +105,7 @@ type SaleMode = "normal" | "multi" | "mix" | "rol";
 type PriceMode = "standaard" | "vasteKlant" | "aangepast";
 type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type OverviewSection = "dashboard" | "recent" | "producten";
-type SaleSection = "nieuw" | "weggeven" | "concepten" | "historie";
+type SaleSection = "nieuw" | "doorverkoop" | "weggeven" | "concepten" | "historie";
 type DebtSection = "personen" | "posten" | "stempelkaarten" | "toevoegen";
 type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type ThemeMode = "light" | "dark";
@@ -1890,12 +1891,14 @@ function SalesView({ data }: { data: TrackerData }) {
         value={section}
         items={[
           ["nieuw", "Nieuwe verkoop"],
+          ["doorverkoop", "Doorverkoop"],
           ["weggeven", "Weggeven"],
           ["concepten", `Concepten${data.concepts.length ? ` (${data.concepts.length})` : ""}`],
           ["historie", "Historie"]
         ]}
         onChange={setSection}
       />
+      {section === "doorverkoop" ? <DealView data={data} /> : null}
       {section === "nieuw" ? (
         <div className="sale-workspace">
         <Panel title="Aantal en prijs">
@@ -2219,6 +2222,131 @@ function SaleItemEditor({
         </label>
       ) : null}
     </div>
+  );
+}
+
+// Doorverkoop: lever uit eigen voorraad (verkoop, jouw prijs) én bestel bij in één
+// handeling. De twee lijsten mogen verschillende smaken zijn (cold mint eruit, peer
+// erin); elke smaak houdt zijn eigen voorraad bij, dus de voorraad blijft kloppen.
+function DealView({ data }: { data: TrackerData }) {
+  const [dealState, dealAction] = useActionState(addDeal, null);
+  const snusDefault = firstVariantId(data, [ProductType.SNUS]);
+  const [verkoopItems, setVerkoopItems] = useState<DraftItem[]>([{ variantId: snusDefault, aantal: 1 }]);
+  const [inkoopItems, setInkoopItems] = useState<DraftItem[]>([{ variantId: snusDefault, aantal: 1 }]);
+  const [price, setPrice] = useState("");
+  const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [customerName, setCustomerName] = useState("");
+  const [dealDate, setDealDate] = useState(dateInputValue(new Date()));
+
+  const variantById = (id: string) => data.variants.find((variant) => variant.id === id);
+  const cleanVerkoop = verkoopItems.filter((item) => item.variantId && item.aantal > 0);
+  const cleanInkoop = inkoopItems.filter((item) => item.variantId && item.aantal > 0);
+  const omzet = Number(price.replace(",", ".")) || 0;
+  const inkoopKosten = cleanInkoop.reduce((sum, item) => {
+    const variant = variantById(item.variantId);
+    return sum + (variant ? item.aantal * BAKJES_PER_ROL * Number(variant.inkoopPrijs) : 0);
+  }, 0);
+  const cashVerschil = omzet - inkoopKosten;
+
+  // Voorraad-saldo per smaak: inkoop telt op (+rol), verkoop trekt af (−rol).
+  const saldo = new Map<string, number>();
+  for (const item of cleanInkoop) saldo.set(item.variantId, (saldo.get(item.variantId) ?? 0) + item.aantal);
+  for (const item of cleanVerkoop) saldo.set(item.variantId, (saldo.get(item.variantId) ?? 0) - item.aantal);
+  const saldoEntries = [...saldo.entries()].filter(([, n]) => n !== 0);
+
+  const hasPof = payment === PaymentMethod.POF;
+  const canSubmit = omzet > 0 && cleanVerkoop.length > 0 && (!hasPof || customerName.trim().length > 0);
+
+  const setV = (index: number, patch: Partial<DraftItem>) =>
+    setVerkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+  const setI = (index: number, patch: Partial<DraftItem>) =>
+    setInkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+
+  return (
+    <section className="stack">
+      <p className="muted">Geleverd uit eigen voorraad én bijbesteld in één handeling. De app boekt de verkoop (jouw prijs) en de inkoop samen — elke smaak houdt zijn eigen voorraad bij, dus niets raakt in de war.</p>
+      <form action={dealAction} className="stack">
+        <div className="sale-workspace">
+          <Panel title="Klant krijgt — uit voorraad">
+            <div className="deal-rows">
+              {verkoopItems.map((item, index) => (
+                <div className="deal-row" key={`v${index}`}>
+                  <SaleItemEditor data={data} item={item} onChange={(next) => setV(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                  {verkoopItems.length > 1 ? (
+                    <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setVerkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <button type="button" className="ghost" onClick={() => setVerkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1 }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+          </Panel>
+
+          <Panel title="Ik bestel — bijbestellen">
+            <div className="deal-rows">
+              {inkoopItems.map((item, index) => (
+                <div className="deal-row" key={`i${index}`}>
+                  <SaleItemEditor data={data} item={item} onChange={(next) => setI(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                  <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setInkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                </div>
+              ))}
+            </div>
+            <div className="button-row">
+              <button type="button" className="ghost" onClick={() => setInkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1 }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+            </div>
+          </Panel>
+        </div>
+
+        <Panel title="Deal afronden">
+          <div className="form-grid">
+            <label>
+              Doorverkoopprijs (totaal)
+              <input inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0,00" />
+            </label>
+            <label>
+              Datum
+              <input type="date" value={dealDate} onChange={(event) => setDealDate(event.target.value)} />
+            </label>
+            <label>
+              Klant {hasPof ? "(verplicht bij pof)" : "(optioneel)"}
+              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="bijv. Ahmed" />
+            </label>
+          </div>
+          <div className="segmented" role="group" aria-label="Betaling">
+            {[PaymentMethod.CASH, PaymentMethod.TIKKIE, PaymentMethod.POF].map((method) => (
+              <button type="button" key={method} className={payment === method ? "active" : ""} onClick={() => setPayment(method)}>{paymentLabel(method)}</button>
+            ))}
+          </div>
+
+          <div className="deal-summary">
+            <div className="summary-row"><span className="muted">Omzet (klant betaalt)</span><strong>{euro(omzet)}</strong></div>
+            <div className="summary-row"><span className="muted">Inkoop bijbestellen</span><strong>− {euro(inkoopKosten)}</strong></div>
+            <div className="summary-row deal-cash"><span>Direct cashverschil</span><strong className={cashVerschil >= 0 ? "green" : "red"}>{euro(cashVerschil)}</strong></div>
+          </div>
+          <p className="muted field-label">Je echte productwinst (markup) loopt automatisch in je cijfers via de geboekte verkoop.</p>
+          {saldoEntries.length > 0 ? (
+            <div className="settings-summary">
+              <span className="field-label">Voorraad na boeking:</span>
+              {saldoEntries.map(([id, n]) => {
+                const variant = variantById(id);
+                return <span key={id}>{variant ? `${variant.merk} ${variant.smaak}` : "?"}: {n > 0 ? "+" : ""}{n} rol</span>;
+              })}
+            </div>
+          ) : null}
+
+          <input type="hidden" name="verkoop" value={JSON.stringify(cleanVerkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
+          <input type="hidden" name="inkoop" value={JSON.stringify(cleanInkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
+          <input type="hidden" name="bedrag" value={omzet ? String(omzet) : ""} />
+          <input type="hidden" name="betaalwijze" value={payment} />
+          <input type="hidden" name="klantNaam" value={customerName} />
+          <input type="hidden" name="datum" value={dealDate} />
+
+          <div className="button-row">
+            <SubmitButton disabled={!canSubmit} pendingLabel="Bezig…">Doorverkoop boeken</SubmitButton>
+          </div>
+          <FormFeedback state={dealState} successLabel="Doorverkoop geboekt" />
+        </Panel>
+      </form>
+    </section>
   );
 }
 

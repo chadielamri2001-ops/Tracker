@@ -328,6 +328,79 @@ export async function addPurchases(_prev: ActionState, formData: FormData): Prom
   });
 }
 
+const dealRowsSchema = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Ongeldige regels." });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.array(z.object({ variantId: z.string().cuid(), rollen: z.coerce.number().int().min(1).max(1000) })).max(25));
+
+// Doorverkoop: in één keer leveren uit eigen voorraad (verkoop, tegen jouw prijs)
+// én bijbestellen bij de leverancier (inkoop, tegen de bekende inkoopprijs). De
+// twee kanten mogen verschillende smaken zijn (bv. cold mint eruit, peer erin);
+// elke smaak volgt zijn eigen voorraadbeweging, dus de voorraad blijft kloppen.
+export async function addDeal(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:deal");
+    const verkoop = parse(dealRowsSchema, String(formData.get("verkoop") || "[]"));
+    const inkoop = parse(dealRowsSchema, String(formData.get("inkoop") || "[]"));
+    if (verkoop.length === 0) throw new Error("Voeg minstens één smaak toe die de klant krijgt.");
+
+    const bedrag = round2(Number(String(formData.get("bedrag") || "0").replace(",", ".")));
+    if (!(bedrag > 0)) throw new Error("Vul een geldige doorverkoopprijs in.");
+    const betaalwijze = parse(z.nativeEnum(PaymentMethod), formData.get("betaalwijze") || PaymentMethod.CASH);
+    const klantNaam = String(formData.get("klantNaam") || "").trim() || undefined;
+    const datumRaw = String(formData.get("datum") || "").trim();
+    const datum = datumRaw ? new Date(datumRaw) : undefined;
+
+    await prisma.$transaction(async (tx) => {
+      // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
+      await createSaleFromInput(tx, {
+        kind: SaleKind.MULTI,
+        items: verkoop.map((row) => ({ variantId: row.variantId, aantal: row.rollen * BAKJES_PER_ROL })),
+        bedrag,
+        rolAantal: verkoop.reduce((sum, row) => sum + row.rollen, 0),
+        betaalwijze,
+        klantNaam,
+        datum
+      });
+
+      // 2) Ik bestel — bijbestelling tegen de al bekende inkoopprijs (voorraad omhoog).
+      // We hergebruiken de huidige gemiddelde inkoopprijs, zodat het gemiddelde niet
+      // verschuift (auto-modus); de smaak hoeft niet gelijk te zijn aan wat de klant kreeg.
+      for (const row of inkoop) {
+        const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
+        if (!variant) throw new Error("Variant bestaat niet.");
+        const aantal = row.rollen * BAKJES_PER_ROL;
+        const prijsPerStuk = Number(variant.inkoopPrijs);
+        const nextInkoop = variant.voorraad
+          ? (Number(variant.inkoopPrijs) * variant.voorraad + prijsPerStuk * aantal) / (variant.voorraad + aantal)
+          : prijsPerStuk;
+        await tx.variant.update({
+          where: { id: variant.id },
+          data: { voorraad: { increment: aantal }, inkoopPrijs: new Prisma.Decimal(nextInkoop.toFixed(4)) }
+        });
+        await tx.purchase.create({
+          data: {
+            variantId: variant.id,
+            rollen: row.rollen,
+            aantal,
+            prijsPerRol: new Prisma.Decimal((prijsPerStuk * BAKJES_PER_ROL).toFixed(2)),
+            prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
+          }
+        });
+      }
+    });
+
+    revalidatePath("/");
+  });
+}
+
 export async function adjustStock(_prev: ActionState, formData: FormData): Promise<ActionState> {
   return runAction(async () => {
     await guardWrite("write:stock");
