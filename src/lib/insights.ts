@@ -1,3 +1,4 @@
+import { SaleKind } from "@prisma/client";
 import type { TrackerData } from "./validators";
 
 // Framework-agnostische reken-helpers: de "bron van waarheid" voor zowel de
@@ -32,6 +33,10 @@ export function isImportBucket(merk: string) {
   return merk.toLowerCase() === "historisch";
 }
 
+export function isRegularSale(sale: TrackerData["sales"][number]) {
+  return sale.kind !== SaleKind.DEAL;
+}
+
 function saleInBounds(sale: TrackerData["sales"][number], bounds: { start: Date; end: Date } | null) {
   if (!bounds) return true;
   const date = normalizeDate(new Date(sale.datum));
@@ -40,7 +45,7 @@ function saleInBounds(sale: TrackerData["sales"][number], bounds: { start: Date;
 
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
   return data.sales
-    .filter((sale) => (predicate ? predicate(sale) : true))
+    .filter((sale) => isRegularSale(sale) && (predicate ? predicate(sale) : true))
     .reduce(
       (stats, sale) => {
         stats.omzet += sale.bedrag;
@@ -70,7 +75,7 @@ export function dailySeries(data: TrackerData, days: number): DayPoint[] {
 }
 
 export function distinctSalesDays(data: TrackerData): number {
-  return new Set(data.sales.map((sale) => dateKey(normalizeDate(new Date(sale.datum))))).size;
+  return new Set(data.sales.filter(isRegularSale).map((sale) => dateKey(normalizeDate(new Date(sale.datum))))).size;
 }
 
 export function variantVelocity(data: TrackerData, days: number): Map<string, number> {
@@ -79,6 +84,7 @@ export function variantVelocity(data: TrackerData, days: number): Map<string, nu
   const end = addDays(today, 1);
   const sold = new Map<string, number>();
   for (const sale of data.sales) {
+    if (!isRegularSale(sale)) continue;
     const date = normalizeDate(new Date(sale.datum));
     if (date < start || date >= end) continue;
     for (const item of sale.items) sold.set(item.variantId, (sold.get(item.variantId) ?? 0) + item.aantal);
@@ -160,6 +166,7 @@ export function weekdayStats(data: TrackerData): WeekdayStat[] {
   const counts = new Array(7).fill(0) as number[];
   const seenDays = new Set<string>();
   for (const sale of data.sales) {
+    if (!isRegularSale(sale)) continue;
     const date = new Date(sale.datum);
     const index = (date.getDay() + 6) % 7; // 0 = maandag
     totals[index] += sale.bedrag;
@@ -206,6 +213,7 @@ export type LoyaltyCard = { naam: string; betaaldeStuks: number; gratisStuks: nu
 export function loyaltyCards(data: TrackerData): LoyaltyCard[] {
   const map = new Map<string, { naam: string; betaaldeStuks: number; gratisStuks: number }>();
   for (const sale of data.sales) {
+    if (!isRegularSale(sale)) continue;
     const naam = sale.klantNaam?.trim();
     if (!naam) continue;
     const stuks = sale.items.reduce((sum, item) => sum + item.aantal, 0);

@@ -1,6 +1,6 @@
 import type { TrackerData } from "./validators";
 import type { AnalyticsSummary, DayBucket } from "@/server/analytics";
-import { clearanceSuggestions, forecastRows, loyaltyCards, salesForecast, weekdayStats } from "./insights";
+import { clearanceSuggestions, forecastRows, isRegularSale, loyaltyCards, salesForecast, weekdayStats } from "./insights";
 
 // Bouwt een compacte, deterministisch berekende samenvatting van de cijfers die
 // als context naar Claude gaat. Géén ruwe rijen of volledige klantnamen — alleen
@@ -59,15 +59,27 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
   const voorraadWaarde = round2(data.variants.reduce((sum, v) => sum + v.voorraad * v.inkoopPrijs, 0));
   const voorraadStuks = data.variants.reduce((sum, v) => sum + v.voorraad, 0);
 
+  const regularProductStats = new Map<string, { omzet: number; verkocht: number }>();
+  for (const sale of data.sales) {
+    if (!isRegularSale(sale)) continue;
+    for (const item of sale.items) {
+      const current = regularProductStats.get(item.variantId) ?? { omzet: 0, verkocht: 0 };
+      current.omzet += item.bedrag;
+      current.verkocht += item.aantal;
+      regularProductStats.set(item.variantId, current);
+    }
+  }
+
   const sellable = data.variants.filter((v) => v.merk.toLowerCase() !== "historisch");
   const bestVerkocht = [...sellable]
-    .sort((a, b) => b.totaalOmzet - a.totaalOmzet)
+    .map((v) => ({ variant: v, stats: regularProductStats.get(v.id) ?? { omzet: 0, verkocht: 0 } }))
+    .sort((a, b) => b.stats.omzet - a.stats.omzet)
     .slice(0, 6)
-    .map((v) => ({
-      naam: `${v.merk} ${v.smaak}`,
-      omzet: round2(v.totaalOmzet),
-      verkocht: v.totaalVerkocht,
-      winst: round2(v.totaalOmzet - v.totaalVerkocht * v.inkoopPrijs)
+    .map(({ variant, stats }) => ({
+      naam: `${variant.merk} ${variant.smaak}`,
+      omzet: round2(stats.omzet),
+      verkocht: stats.verkocht,
+      winst: round2(stats.omzet - stats.verkocht * variant.inkoopPrijs)
     }));
 
   const traag = clearanceSuggestions(data).map((c) => ({
@@ -124,7 +136,7 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
     openstaandePof: { bedrag: openPof, personen: openPofPersonen },
     betaalmethodes: analytics.paymentSplit.map((p) => ({ methode: p.method, omzet: round2(p.omzet), aantal: p.count })),
     loyalty,
-    aantalVerkopen: data.sales.length,
+    aantalVerkopen: data.sales.filter(isRegularSale).length,
     voldoendeDataVoorPrognose: salesForecast(data).enough
   };
 }

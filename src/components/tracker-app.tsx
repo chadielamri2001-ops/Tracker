@@ -51,6 +51,7 @@ import {
   dailySeries,
   distinctSalesDays,
   forecastRows,
+  isRegularSale,
   loyaltyCards,
   restockSuggestions,
   salesForecast,
@@ -317,7 +318,7 @@ function SaleStatus({ sale }: { sale: SaleRecord }) {
 }
 
 function kindLabel(value: SaleKind) {
-  return value === SaleKind.MIX ? "Mix rol" : value === SaleKind.MULTI ? "Multi" : "Normaal";
+  return value === SaleKind.DEAL ? "Doorverkoop" : value === SaleKind.MIX ? "Mix rol" : value === SaleKind.MULTI ? "Multi" : "Normaal";
 }
 
 function purchaseQtyLabel(purchase: { rollen: number; aantal: number }) {
@@ -516,7 +517,7 @@ function debtAgeLabel(debt: TrackerData["debts"][number]) {
 }
 
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
-  return data.sales.filter((sale) => (predicate ? predicate(sale) : true)).reduce(
+  return data.sales.filter((sale) => isRegularSale(sale) && (predicate ? predicate(sale) : true)).reduce(
     (stats, sale) => {
       stats.omzet += sale.bedrag;
       stats.transacties += 1;
@@ -951,6 +952,7 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
       const adminPeriod = adminPeriodAtOffset(offset);
       if (!adminPeriod) break;
       const hasSales = data.sales.some((sale) => {
+        if (!isRegularSale(sale)) return false;
         const date = normalizeDate(new Date(sale.datum));
         return date >= adminPeriod.start && date < adminPeriod.endExclusive;
       });
@@ -1303,6 +1305,7 @@ function Insights({ data }: { data: TrackerData }) {
     const importIds = new Set(data.variants.filter((variant) => isImportBucket(variant.merk)).map((variant) => variant.id));
     const omzet = new Map<string, number>();
     for (const sale of data.sales) {
+      if (!isRegularSale(sale)) continue;
       const date = normalizeDate(new Date(sale.datum));
       if (date < start || date >= end) continue;
       for (const item of sale.items) {
@@ -1318,6 +1321,7 @@ function Insights({ data }: { data: TrackerData }) {
   const busiestDay = useMemo(() => {
     const byDay = new Map<string, number>();
     for (const sale of data.sales) {
+      if (!isRegularSale(sale)) continue;
       const name = new Date(sale.datum).toLocaleDateString("nl-NL", { weekday: "long" });
       byDay.set(name, (byDay.get(name) ?? 0) + sale.bedrag);
     }
@@ -1327,7 +1331,7 @@ function Insights({ data }: { data: TrackerData }) {
     return bestDay || null;
   }, [data]);
 
-  if (data.sales.length === 0) return null;
+  if (!data.sales.some(isRegularSale)) return null;
 
   const trendArrow = forecast.trendPct > 1 ? "▲" : forecast.trendPct < -1 ? "▼" : "→";
 
@@ -2491,7 +2495,7 @@ function SalesHistory({ data, onEdit }: { data: TrackerData; onEdit: (sale: Sale
                   <td><SaleStatus sale={sale} /></td>
                   <td className="amount">{euro(sale.bedrag)}</td>
                   <td className="button-row">
-                    {sale.gratis ? null : (
+                    {sale.gratis || sale.kind === SaleKind.DEAL ? null : (
                       <button type="button" onClick={() => onEdit(sale)}><IconEdit size={15} /><span>Bewerk</span></button>
                     )}
                     <ActionButton action={deleteSale} fields={{ id: sale.id }} className="danger" confirm successToast="Verkoop verwijderd">
@@ -2756,6 +2760,7 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
     const flavors = new Map<string, RankAcc>();
     const brands = new Map<string, RankAcc>();
     for (const sale of data.sales) {
+      if (!isRegularSale(sale)) continue;
       if (selectedPeriod && statsPeriodKey(normalizeDate(new Date(sale.datum)), period, firstSale) !== selectedPeriod) continue;
       for (const item of sale.items) {
         const variant = data.variants.find((v) => v.id === item.variantId);

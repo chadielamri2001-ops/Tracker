@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
  */
 
 const TZ_DAY = `date_trunc('day', "datum" AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Amsterdam')`;
+const REGULAR_SALE_WHERE = `"kind" <> 'DEAL'`;
 
 export type DayBucket = { date: string; omzet: number; winst: number; stuks: number; transacties: number };
 
@@ -39,6 +40,7 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
               COALESCE(SUM("bedrag"), 0)::float8 AS omzet,
               COUNT(*)::int AS transacties
        FROM "Sale"
+       WHERE ${REGULAR_SALE_WHERE}
        GROUP BY 1
        ORDER BY 1 ASC`
     ),
@@ -50,6 +52,7 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
        FROM "SaleItem" si
        JOIN "Sale" s ON s."id" = si."saleId"
        JOIN "Variant" v ON v."id" = si."variantId"
+       WHERE s."kind" <> 'DEAL'
        GROUP BY 1`
     ),
     // Verkoopsnelheid per variant (stuks/dag) over de laatste 30 dagen.
@@ -57,14 +60,17 @@ export async function getAnalytics(): Promise<AnalyticsSummary> {
       `SELECT si."variantId" AS "variantId", COALESCE(SUM(si."aantal"), 0)::int AS qty
        FROM "SaleItem" si
        JOIN "Sale" s ON s."id" = si."saleId"
-       WHERE s."datum" >= (now() - interval '30 days')
+       WHERE s."kind" <> 'DEAL'
+         AND s."datum" >= (now() - interval '30 days')
        GROUP BY si."variantId"`
     ),
     // Omzet + aantal betalingen per betaalwijze (volledige historie), op basis van
     // de echte betaaldelen — zo tellen gesplitste betalingen per methode correct mee.
     prisma.$queryRawUnsafe<Array<{ method: PaymentMethod; omzet: number; count: number }>>(
-      `SELECT "method" AS method, COALESCE(SUM("bedrag"), 0)::float8 AS omzet, COUNT(*)::int AS count
-       FROM "Payment"
+      `SELECT p."method" AS method, COALESCE(SUM(p."bedrag"), 0)::float8 AS omzet, COUNT(*)::int AS count
+       FROM "Payment" p
+       JOIN "Sale" s ON s."id" = p."saleId"
+       WHERE s."kind" <> 'DEAL'
        GROUP BY 1`
     )
   ]);

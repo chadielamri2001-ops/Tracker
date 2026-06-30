@@ -12,6 +12,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "deal:candidates": "tsx scripts/find-deal-candidates.ts",
+    "deal:mark": "tsx scripts/mark-sale-as-deal.ts",
     "migrate:legacy": "tsx scripts/migrate-legacy-state.ts"
   },
   "dependencies": {

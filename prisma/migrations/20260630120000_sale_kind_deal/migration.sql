@@ -1,0 +1,1 @@
+ALTER TYPE "SaleKind" ADD VALUE 'DEAL';

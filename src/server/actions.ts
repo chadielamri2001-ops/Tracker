@@ -140,9 +140,11 @@ async function createSaleFromInput(
     gratis?: boolean;
     klantNaam?: string;
     datum?: Date;
+    trackPerformance?: boolean;
   }
 ) {
   const gratis = input.gratis ?? false;
+  const trackPerformance = input.trackPerformance ?? true;
   // Gratis weggeven: €0 omzet, geen betaaldelen en geen pofschuld. De inkoopkosten
   // tellen wél mee (via de saleItems), zodat de winst correct daalt.
   const { effective, pofDeel, primair } = gratis
@@ -203,8 +205,12 @@ async function createSaleFromInput(
       where: { id: item.variantId },
       data: {
         voorraad: { decrement: item.aantal },
-        totaalVerkocht: { increment: item.aantal },
-        totaalOmzet: { increment: decimal(aandeel) }
+        ...(trackPerformance
+          ? {
+              totaalVerkocht: { increment: item.aantal },
+              totaalOmzet: { increment: decimal(aandeel) }
+            }
+          : {})
       }
     });
   }
@@ -227,14 +233,19 @@ async function createSaleFromInput(
 async function reverseAndDeleteSale(tx: Prisma.TransactionClient, id: string) {
   const sale = await tx.sale.findUnique({ where: { id }, include: { items: true, debt: true } });
   if (!sale) throw new Error("Verkoop bestaat niet.");
+  const trackPerformance = sale.kind !== SaleKind.DEAL;
 
   for (const item of sale.items) {
     await tx.variant.update({
       where: { id: item.variantId },
       data: {
         voorraad: { increment: item.aantal },
-        totaalVerkocht: { decrement: item.aantal },
-        totaalOmzet: { decrement: item.bedrag }
+        ...(trackPerformance
+          ? {
+              totaalVerkocht: { decrement: item.aantal },
+              totaalOmzet: { decrement: item.bedrag }
+            }
+          : {})
       }
     });
   }
@@ -372,13 +383,14 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
     await prisma.$transaction(async (tx) => {
       // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
       await createSaleFromInput(tx, {
-        kind: SaleKind.MULTI,
+        kind: SaleKind.DEAL,
         items: verkoop.map((row) => ({ variantId: row.variantId, aantal: row.rollen * BAKJES_PER_ROL })),
         bedrag,
         rolAantal: verkoop.reduce((sum, row) => sum + row.rollen, 0),
         betaalwijze,
         klantNaam,
-        datum
+        datum,
+        trackPerformance: false
       });
 
       // 2) Ik bestel — bijbestelling tegen de al bekende inkoopprijs (voorraad omhoog).

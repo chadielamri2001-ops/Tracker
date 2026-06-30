@@ -30,6 +30,7 @@ enum SaleKind {
   NORMAL
   MULTI
   MIX
+  DEAL
 }
 
 enum ProductType {
