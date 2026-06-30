@@ -532,6 +532,33 @@ function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][nu
   );
 }
 
+function saleItemCost(data: TrackerData, sale: SaleRecord) {
+  return sale.items.reduce((sum, item) => {
+    const variant = data.variants.find((v) => v.id === item.variantId);
+    return sum + item.aantal * (variant?.inkoopPrijs ?? 0);
+  }, 0);
+}
+
+function dealCost(data: TrackerData, sale: SaleRecord) {
+  return sale.dealInkoopBedrag ?? saleItemCost(data, sale);
+}
+
+function dealStats(data: TrackerData, predicate?: (sale: SaleRecord) => boolean) {
+  return data.sales
+    .filter((sale) => sale.kind === SaleKind.DEAL && (predicate ? predicate(sale) : true))
+    .reduce(
+      (stats, sale) => {
+        const inkoop = dealCost(data, sale);
+        stats.omzet += sale.bedrag;
+        stats.inkoop += inkoop;
+        stats.winst += sale.bedrag - inkoop;
+        stats.aantal += 1;
+        return stats;
+      },
+      { omzet: 0, inkoop: 0, winst: 0, aantal: 0 }
+    );
+}
+
 function ymd(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -2274,6 +2301,7 @@ function DealView({ data }: { data: TrackerData }) {
 
   return (
     <section className="stack">
+      <DealOverview data={data} />
       <p className="muted">Geleverd uit eigen voorraad én bijbesteld in één handeling. De app boekt de verkoop (jouw prijs) en de inkoop samen — elke smaak houdt zijn eigen voorraad bij, dus niets raakt in de war.</p>
       <form action={dealAction} className="stack">
         <div className="sale-workspace">
@@ -2336,7 +2364,7 @@ function DealView({ data }: { data: TrackerData }) {
             <div className="summary-row"><span className="muted">Inkoop {inkoopHandmatig ? "(ingevuld)" : "(automatisch)"}</span><strong>− {euro(inkoopKosten)}</strong></div>
             <div className="summary-row deal-cash"><span>Direct cashverschil</span><strong className={cashVerschil >= 0 ? "green" : "red"}>{euro(cashVerschil)}</strong></div>
           </div>
-          <p className="muted field-label">Je echte productwinst (markup) loopt automatisch in je cijfers via de geboekte verkoop.</p>
+          <p className="muted field-label">Deze deal komt apart in het doorverkoop-overzicht. Je normale dagomzet en verkoopgroei blijven schoon.</p>
           {saldoEntries.length > 0 ? (
             <div className="settings-summary">
               <span className="field-label">Voorraad na boeking:</span>
@@ -2362,6 +2390,68 @@ function DealView({ data }: { data: TrackerData }) {
         </Panel>
       </form>
     </section>
+  );
+}
+
+function DealOverview({ data }: { data: TrackerData }) {
+  const deals = data.sales.filter((sale) => sale.kind === SaleKind.DEAL);
+  if (deals.length === 0) {
+    return (
+      <Panel title="Doorverkoop overzicht">
+        <p className="empty">Nog geen doorverkopen geboekt.</p>
+      </Panel>
+    );
+  }
+
+  const all = dealStats(data);
+  const today = normalizeDate(new Date());
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const month = dealStats(data, (sale) => {
+    const date = normalizeDate(new Date(sale.datum));
+    return date >= monthStart && date < addDays(today, 1);
+  });
+  const margin = all.omzet > 0 ? (all.winst / all.omzet) * 100 : 0;
+
+  return (
+    <Panel title="Doorverkoop overzicht">
+      <div className="metric-grid compact">
+        <Metric label="Omzet doorverkoop" value={euro(all.omzet)} />
+        <Metric label="Inkoop doorverkoop" value={euro(all.inkoop)} />
+        <Metric label="Winst / cashverschil" value={euro(all.winst)} tone={all.winst >= 0 ? "good" : "bad"} />
+        <Metric label="Marge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
+        <Metric label="Deze maand" value={euro(month.winst)} sub={`${month.aantal} ${month.aantal === 1 ? "deal" : "deals"}`} tone={month.winst >= 0 ? "good" : "bad"} />
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Omschrijving</th>
+              <th className="amount">Omzet</th>
+              <th className="amount">Inkoop</th>
+              <th className="amount">Winst</th>
+              <th>Betaling</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deals.slice(0, 25).map((sale) => {
+              const inkoop = dealCost(data, sale);
+              const winst = sale.bedrag - inkoop;
+              return (
+                <tr key={sale.id}>
+                  <td>{dateNl(sale.datum)}</td>
+                  <td>{sale.items.map((item) => saleItemLabel(item)).join(", ")}</td>
+                  <td className="amount">{euro(sale.bedrag)}</td>
+                  <td className="amount">{euro(inkoop)}</td>
+                  <td className={`amount ${winst >= 0 ? "green" : "red"}`}>{euro(winst)}</td>
+                  <td><PaymentBadges payments={sale.payments} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 

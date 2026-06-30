@@ -160,6 +160,7 @@ export const trackerDataSchema = z.object({
       id: z.string(),
       datum: z.string(),
       bedrag: z.number(),
+      dealInkoopBedrag: z.number().nullable(),
       betaalwijze: z.nativeEnum(PaymentMethod),
       kind: z.nativeEnum(SaleKind),
       basisBedrag: z.number().nullable(),

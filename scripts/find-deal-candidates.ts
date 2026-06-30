@@ -29,7 +29,8 @@ async function main() {
   for (const sale of sales) {
     const items = sale.items.map((item) => `${item.variant.merk} ${item.variant.smaak} x${item.aantal}`).join(", ");
     const payments = sale.payments.map((payment) => `${payment.method} ${euro(payment.bedrag)}`).join(", ") || sale.betaalwijze;
-    console.log(`${sale.id} | ${sale.kind} | ${sale.datum.toISOString()} | ${euro(sale.bedrag)} | ${payments} | ${items}`);
+    const dealCost = sale.dealInkoopBedrag === null ? "" : ` | deal-inkoop ${euro(sale.dealInkoopBedrag)}`;
+    console.log(`${sale.id} | ${sale.kind} | ${sale.datum.toISOString()} | ${euro(sale.bedrag)}${dealCost} | ${payments} | ${items}`);
   }
 }
 

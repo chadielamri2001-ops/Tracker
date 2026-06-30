@@ -132,6 +132,7 @@ async function createSaleFromInput(
     kind: SaleKind;
     items: Array<{ variantId: string; aantal: number }>;
     bedrag: number;
+    dealInkoopBedrag?: number;
     basisBedrag?: number;
     bezorgkosten?: number;
     rolAantal?: number;
@@ -172,6 +173,7 @@ async function createSaleFromInput(
     data: {
       kind: input.kind,
       bedrag: decimal(input.bedrag),
+      dealInkoopBedrag: input.dealInkoopBedrag === undefined ? null : decimal(input.dealInkoopBedrag),
       basisBedrag: input.basisBedrag === undefined ? null : decimal(input.basisBedrag),
       bezorgkosten: input.bezorgkosten === undefined ? null : decimal(input.bezorgkosten),
       rolAantal: input.rolAantal ?? null,
@@ -381,11 +383,20 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
       inkoopTotaal && inkoopTotaal > 0 && totalInkoopPakjes > 0 ? inkoopTotaal / totalInkoopPakjes : null;
 
     await prisma.$transaction(async (tx) => {
+      let dealInkoopBedrag = inkoopTotaal ?? 0;
+      if (!inkoopTotaal) {
+        for (const row of inkoop) {
+          const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
+          if (!variant) throw new Error("Variant bestaat niet.");
+          dealInkoopBedrag += row.rollen * BAKJES_PER_ROL * Number(variant.inkoopPrijs);
+        }
+      }
       // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
       await createSaleFromInput(tx, {
         kind: SaleKind.DEAL,
         items: verkoop.map((row) => ({ variantId: row.variantId, aantal: row.rollen * BAKJES_PER_ROL })),
         bedrag,
+        dealInkoopBedrag,
         rolAantal: verkoop.reduce((sum, row) => sum + row.rollen, 0),
         betaalwijze,
         klantNaam,

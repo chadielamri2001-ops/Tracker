@@ -87,6 +87,7 @@ model Sale {
   kind         SaleKind      @default(NORMAL)
   datum        DateTime      @default(now())
   bedrag       Decimal       @db.Decimal(12, 2)
+  dealInkoopBedrag Decimal?  @db.Decimal(12, 2)
   basisBedrag  Decimal?      @db.Decimal(12, 2)
   bezorgkosten Decimal?      @db.Decimal(12, 2)
   rolAantal    Int?

@@ -51,6 +51,7 @@ export async function getTrackerData() {
       id: sale.id,
       datum: sale.datum.toISOString(),
       bedrag: Number(sale.bedrag),
+      dealInkoopBedrag: sale.dealInkoopBedrag === null ? null : Number(sale.dealInkoopBedrag),
       betaalwijze: sale.betaalwijze as PaymentMethod,
       kind: sale.kind,
       basisBedrag: sale.basisBedrag === null ? null : Number(sale.basisBedrag),
