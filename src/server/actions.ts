@@ -358,6 +358,17 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
     const datumRaw = String(formData.get("datum") || "").trim();
     const datum = datumRaw ? new Date(datumRaw) : undefined;
 
+    // Optioneel: de werkelijke inkoopprijs van de hele bijbestelling (bv. een doos
+    // die € 440 kostte). Is dit ingevuld, dan verdelen we dat bedrag gelijkmatig over
+    // alle bestelde pakjes i.p.v. de gemiddelde inkoopprijs te gebruiken — zo klopt de
+    // winst exact. Leeg = automatisch (gemiddelde inkoopprijs per smaak).
+    const totalInkoopPakjes = inkoop.reduce((sum, row) => sum + row.rollen * BAKJES_PER_ROL, 0);
+    const inkoopTotaalRaw = String(formData.get("inkoopTotaal") || "").replace(",", ".").trim();
+    const inkoopTotaal = inkoopTotaalRaw ? Number(inkoopTotaalRaw) : null;
+    if (inkoopTotaalRaw && !(Number(inkoopTotaal) >= 0)) throw new Error("Vul een geldige inkoopprijs in.");
+    const manualPrijsPerStuk =
+      inkoopTotaal && inkoopTotaal > 0 && totalInkoopPakjes > 0 ? inkoopTotaal / totalInkoopPakjes : null;
+
     await prisma.$transaction(async (tx) => {
       // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
       await createSaleFromInput(tx, {
@@ -377,7 +388,7 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
         const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
         if (!variant) throw new Error("Variant bestaat niet.");
         const aantal = row.rollen * BAKJES_PER_ROL;
-        const prijsPerStuk = Number(variant.inkoopPrijs);
+        const prijsPerStuk = manualPrijsPerStuk ?? Number(variant.inkoopPrijs);
         const nextInkoop = variant.voorraad
           ? (Number(variant.inkoopPrijs) * variant.voorraad + prijsPerStuk * aantal) / (variant.voorraad + aantal)
           : prijsPerStuk;

@@ -2237,15 +2237,21 @@ function DealView({ data }: { data: TrackerData }) {
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [customerName, setCustomerName] = useState("");
   const [dealDate, setDealDate] = useState(dateInputValue(new Date()));
+  const [inkoopTotaal, setInkoopTotaal] = useState("");
 
   const variantById = (id: string) => data.variants.find((variant) => variant.id === id);
   const cleanVerkoop = verkoopItems.filter((item) => item.variantId && item.aantal > 0);
   const cleanInkoop = inkoopItems.filter((item) => item.variantId && item.aantal > 0);
   const omzet = Number(price.replace(",", ".")) || 0;
-  const inkoopKosten = cleanInkoop.reduce((sum, item) => {
+  const autoInkoopKosten = cleanInkoop.reduce((sum, item) => {
     const variant = variantById(item.variantId);
     return sum + (variant ? item.aantal * BAKJES_PER_ROL * Number(variant.inkoopPrijs) : 0);
   }, 0);
+  // Vul je de werkelijke inkoopprijs in (bv. de doos kostte € 440), dan telt die;
+  // anders de automatische berekening op gemiddelde inkoopprijs.
+  const manualInkoop = Number(inkoopTotaal.replace(",", ".")) || 0;
+  const inkoopHandmatig = inkoopTotaal.trim().length > 0;
+  const inkoopKosten = inkoopHandmatig ? manualInkoop : autoInkoopKosten;
   const cashVerschil = omzet - inkoopKosten;
 
   // Voorraad-saldo per smaak: inkoop telt op (+rol), verkoop trekt af (−rol).
@@ -2303,6 +2309,10 @@ function DealView({ data }: { data: TrackerData }) {
               <input inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0,00" />
             </label>
             <label>
+              Werkelijke inkoopprijs (optioneel)
+              <input inputMode="decimal" value={inkoopTotaal} onChange={(event) => setInkoopTotaal(event.target.value)} placeholder="auto" />
+            </label>
+            <label>
               Datum
               <input type="date" value={dealDate} onChange={(event) => setDealDate(event.target.value)} />
             </label>
@@ -2319,7 +2329,7 @@ function DealView({ data }: { data: TrackerData }) {
 
           <div className="deal-summary">
             <div className="summary-row"><span className="muted">Omzet (klant betaalt)</span><strong>{euro(omzet)}</strong></div>
-            <div className="summary-row"><span className="muted">Inkoop bijbestellen</span><strong>− {euro(inkoopKosten)}</strong></div>
+            <div className="summary-row"><span className="muted">Inkoop {inkoopHandmatig ? "(ingevuld)" : "(automatisch)"}</span><strong>− {euro(inkoopKosten)}</strong></div>
             <div className="summary-row deal-cash"><span>Direct cashverschil</span><strong className={cashVerschil >= 0 ? "green" : "red"}>{euro(cashVerschil)}</strong></div>
           </div>
           <p className="muted field-label">Je echte productwinst (markup) loopt automatisch in je cijfers via de geboekte verkoop.</p>
@@ -2336,6 +2346,7 @@ function DealView({ data }: { data: TrackerData }) {
           <input type="hidden" name="verkoop" value={JSON.stringify(cleanVerkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
           <input type="hidden" name="inkoop" value={JSON.stringify(cleanInkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
           <input type="hidden" name="bedrag" value={omzet ? String(omzet) : ""} />
+          <input type="hidden" name="inkoopTotaal" value={inkoopHandmatig ? String(manualInkoop) : ""} />
           <input type="hidden" name="betaalwijze" value={payment} />
           <input type="hidden" name="klantNaam" value={customerName} />
           <input type="hidden" name="datum" value={dealDate} />
