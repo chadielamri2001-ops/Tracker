@@ -35,11 +35,29 @@ export function LoginForm() {
     >
       <label>
         E-mail
-        <input name="email" type="email" autoComplete="email" required />
+        <input
+          name="email"
+          type="email"
+          autoComplete="email"
+          inputMode="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+        />
       </label>
       <label>
         Wachtwoord
-        <input name="password" type="password" autoComplete="current-password" required minLength={8} />
+        <input
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          minLength={8}
+        />
       </label>
       {error ? <p className="error">{error}</p> : null}
       <button className="primary" disabled={pending} type="submit">

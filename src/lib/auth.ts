@@ -7,7 +7,9 @@ import { assertRateLimit } from "./rate-limit";
 import { prisma } from "./prisma";
 
 const credentialsSchema = z.object({
-  email: z.string().email().max(254),
+  // Trim + lowercase: mobiele toetsenborden/autofill plakken soms een spatie of
+  // hoofdletter aan de e-mail, wat anders onterecht "verkeerde gegevens" geeft.
+  email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(8).max(256)
 });
 
