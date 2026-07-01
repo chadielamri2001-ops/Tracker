@@ -1103,19 +1103,24 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
       {section === "dashboard" ? (
         <>
           <AiAssistant />
+          {/* Groei blijft ook op mobiel; de diepe panelen (mobile-hide) alleen op desktop/Statistieken. */}
           <div className="dashboard-grid">
             <div className="dashboard-main">
               <BusinessPulse data={data} />
-              <TrendChart data={data} />
-              <ForecastPanel data={data} />
+              <div className="mobile-hide"><TrendChart data={data} /></div>
+              <div className="mobile-hide"><ForecastPanel data={data} /></div>
             </div>
-            <div className="dashboard-side">
+            <div className="dashboard-side mobile-hide">
               <Insights data={data} />
               <WeekdayPanel data={data} />
               <ClearancePanel data={data} />
             </div>
           </div>
-          <TopFlop analytics={analytics} period={period} />
+          <div className="mobile-hide"><TopFlop analytics={analytics} period={period} /></div>
+          <button type="button" className="mobile-stats-link" onClick={() => onNavigate("statistieken")}>
+            <span><IconChart size={18} /> Diepe cijfers &amp; grafieken</span>
+            <span className="muted">Statistieken <IconChevronRight size={16} /></span>
+          </button>
         </>
       ) : null}
       {section === "recent" ? <RecentSalesPreview sales={data.sales.slice(0, 30)} /> : null}

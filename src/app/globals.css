@@ -550,6 +550,7 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 /* Bottom navigation — alleen op smalle schermen zichtbaar */
 .bottom-nav { display: none; }
 .mobile-topbar { display: none; }
+.mobile-stats-link { display: none; }
 
 /* icon + label alignment for toolbar / row buttons */
 .nav-item, .theme-toggle, .sidebar .ghost,
@@ -2118,6 +2119,26 @@ td:last-child, th:last-child { white-space: nowrap; }
 /* Onder 860px: zijbalk inruilen voor onderbalk-navigatie */
 @media (max-width: 860px) {
   .sidebar { display: none; }
+  /* Telefoon = eenvoudiger overzicht: diepe panelen verbergen, KPI's naar 2. */
+  .mobile-hide { display: none !important; }
+  .metric-grid.kpis .metric:nth-child(n+3) { display: none; }
+  .mobile-stats-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    margin-top: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: var(--fw-medium);
+  }
+  .mobile-stats-link span:first-child { display: inline-flex; align-items: center; gap: 8px; }
+  .mobile-stats-link .muted { display: inline-flex; align-items: center; gap: 4px; }
   .mobile-topbar {
     position: fixed;
     top: 0;
