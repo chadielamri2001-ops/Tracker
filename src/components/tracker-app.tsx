@@ -2263,26 +2263,24 @@ function DealView({ data }: { data: TrackerData }) {
   const [dealState, dealAction] = useActionState(addDeal, null);
   const snusDefault = firstVariantId(data, [ProductType.SNUS]);
   const [verkoopItems, setVerkoopItems] = useState<DraftItem[]>([{ variantId: snusDefault, aantal: 1 }]);
-  const [inkoopItems, setInkoopItems] = useState<DraftItem[]>([{ variantId: snusDefault, aantal: 1 }]);
+  const [inkoopItems, setInkoopItems] = useState<Array<DraftItem & { prijs: string }>>([{ variantId: snusDefault, aantal: 1, prijs: "" }]);
   const [price, setPrice] = useState("");
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [customerName, setCustomerName] = useState("");
   const [dealDate, setDealDate] = useState(dateInputValue(new Date()));
-  const [inkoopTotaal, setInkoopTotaal] = useState("");
 
   const variantById = (id: string) => data.variants.find((variant) => variant.id === id);
   const cleanVerkoop = verkoopItems.filter((item) => item.variantId && item.aantal > 0);
   const cleanInkoop = inkoopItems.filter((item) => item.variantId && item.aantal > 0);
   const omzet = Number(price.replace(",", ".")) || 0;
-  const autoInkoopKosten = cleanInkoop.reduce((sum, item) => {
+  // Prijs per regel (per rol): ingevuld = die prijs, leeg = bekende gemiddelde inkoopprijs.
+  const inkoopPerRol = (item: DraftItem & { prijs: string }) => {
+    const manual = item.prijs.trim() ? Number(item.prijs.replace(",", ".")) : NaN;
+    if (Number.isFinite(manual) && manual >= 0) return manual;
     const variant = variantById(item.variantId);
-    return sum + (variant ? item.aantal * BAKJES_PER_ROL * Number(variant.inkoopPrijs) : 0);
-  }, 0);
-  // Vul je de werkelijke inkoopprijs in (bv. de doos kostte € 440), dan telt die;
-  // anders de automatische berekening op gemiddelde inkoopprijs.
-  const manualInkoop = Number(inkoopTotaal.replace(",", ".")) || 0;
-  const inkoopHandmatig = inkoopTotaal.trim().length > 0;
-  const inkoopKosten = inkoopHandmatig ? manualInkoop : autoInkoopKosten;
+    return variant ? Number(variant.inkoopPrijs) * BAKJES_PER_ROL : 0;
+  };
+  const inkoopKosten = cleanInkoop.reduce((sum, item) => sum + item.aantal * inkoopPerRol(item), 0);
   const cashVerschil = omzet - inkoopKosten;
 
   // Voorraad-saldo per smaak: inkoop telt op (+rol), verkoop trekt af (−rol).
@@ -2296,7 +2294,7 @@ function DealView({ data }: { data: TrackerData }) {
 
   const setV = (index: number, patch: Partial<DraftItem>) =>
     setVerkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
-  const setI = (index: number, patch: Partial<DraftItem>) =>
+  const setI = (index: number, patch: Partial<DraftItem & { prijs: string }>) =>
     setInkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
 
   return (
@@ -2321,16 +2319,25 @@ function DealView({ data }: { data: TrackerData }) {
 
           <Panel title="Ik bestel — bijbestellen">
             <div className="deal-rows">
-              {inkoopItems.map((item, index) => (
-                <div className="deal-row" key={`i${index}`}>
-                  <SaleItemEditor data={data} item={item} onChange={(next) => setI(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
-                  <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setInkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
-                </div>
-              ))}
+              {inkoopItems.map((item, index) => {
+                const variant = variantById(item.variantId);
+                const autoPerRol = variant ? (Number(variant.inkoopPrijs) * BAKJES_PER_ROL).toFixed(2) : "auto";
+                return (
+                  <div className="deal-row" key={`i${index}`}>
+                    <SaleItemEditor data={data} item={item} onChange={(next) => setI(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                    <label className="deal-price">
+                      Prijs/rol
+                      <input inputMode="decimal" value={item.prijs} onChange={(event) => setI(index, { prijs: event.target.value })} placeholder={autoPerRol} />
+                    </label>
+                    <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setInkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                  </div>
+                );
+              })}
             </div>
             <div className="button-row">
-              <button type="button" className="ghost" onClick={() => setInkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1 }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+              <button type="button" className="ghost" onClick={() => setInkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1, prijs: "" }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
             </div>
+            <p className="muted field-label">Prijs per rol leeg = de bekende inkoopprijs. Bij een doos: vul de prijs per rol in (bv. doos € 440 / 24 rol = € 18,33).</p>
           </Panel>
         </div>
 
@@ -2339,10 +2346,6 @@ function DealView({ data }: { data: TrackerData }) {
             <label>
               Doorverkoopprijs (totaal)
               <input inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0,00" />
-            </label>
-            <label>
-              Werkelijke inkoopprijs (optioneel)
-              <input inputMode="decimal" value={inkoopTotaal} onChange={(event) => setInkoopTotaal(event.target.value)} placeholder="auto" />
             </label>
             <label>
               Datum
@@ -2361,7 +2364,7 @@ function DealView({ data }: { data: TrackerData }) {
 
           <div className="deal-summary">
             <div className="summary-row"><span className="muted">Omzet (klant betaalt)</span><strong>{euro(omzet)}</strong></div>
-            <div className="summary-row"><span className="muted">Inkoop {inkoopHandmatig ? "(ingevuld)" : "(automatisch)"}</span><strong>− {euro(inkoopKosten)}</strong></div>
+            <div className="summary-row"><span className="muted">Inkoopkosten</span><strong>− {euro(inkoopKosten)}</strong></div>
             <div className="summary-row deal-cash"><span>Direct cashverschil</span><strong className={cashVerschil >= 0 ? "green" : "red"}>{euro(cashVerschil)}</strong></div>
           </div>
           <p className="muted field-label">Deze deal komt apart in het doorverkoop-overzicht. Je normale dagomzet en verkoopgroei blijven schoon.</p>
@@ -2376,9 +2379,13 @@ function DealView({ data }: { data: TrackerData }) {
           ) : null}
 
           <input type="hidden" name="verkoop" value={JSON.stringify(cleanVerkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
-          <input type="hidden" name="inkoop" value={JSON.stringify(cleanInkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
+          <input type="hidden" name="inkoop" value={JSON.stringify(cleanInkoop.map((item) => {
+            const manual = item.prijs.trim() ? Number(item.prijs.replace(",", ".")) : null;
+            return manual != null && manual >= 0
+              ? { variantId: item.variantId, rollen: item.aantal, prijsPerRol: manual }
+              : { variantId: item.variantId, rollen: item.aantal };
+          }))} />
           <input type="hidden" name="bedrag" value={omzet ? String(omzet) : ""} />
-          <input type="hidden" name="inkoopTotaal" value={inkoopHandmatig ? String(manualInkoop) : ""} />
           <input type="hidden" name="betaalwijze" value={payment} />
           <input type="hidden" name="klantNaam" value={customerName} />
           <input type="hidden" name="datum" value={dealDate} />

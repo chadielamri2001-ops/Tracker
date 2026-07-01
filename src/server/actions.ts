@@ -353,6 +353,30 @@ const dealRowsSchema = z
   })
   .pipe(z.array(z.object({ variantId: z.string().cuid(), rollen: z.coerce.number().int().min(1).max(1000) })).max(25));
 
+// Inkoop-regels van een deal: net als hierboven, maar met een optionele prijs per
+// rol per regel. Leeg = de al bekende gemiddelde inkoopprijs van die smaak.
+const dealInkoopRowsSchema = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Ongeldige regels." });
+      return z.NEVER;
+    }
+  })
+  .pipe(
+    z
+      .array(
+        z.object({
+          variantId: z.string().cuid(),
+          rollen: z.coerce.number().int().min(1).max(1000),
+          prijsPerRol: z.coerce.number().min(0).max(100000).optional()
+        })
+      )
+      .max(25)
+  );
+
 // Doorverkoop: in één keer leveren uit eigen voorraad (verkoop, tegen jouw prijs)
 // én bijbestellen bij de leverancier (inkoop, tegen de bekende inkoopprijs). De
 // twee kanten mogen verschillende smaken zijn (bv. cold mint eruit, peer erin);
@@ -361,7 +385,7 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
   return runAction(async () => {
     await guardWrite("write:deal");
     const verkoop = parse(dealRowsSchema, String(formData.get("verkoop") || "[]"));
-    const inkoop = parse(dealRowsSchema, String(formData.get("inkoop") || "[]"));
+    const inkoop = parse(dealInkoopRowsSchema, String(formData.get("inkoop") || "[]"));
     if (verkoop.length === 0) throw new Error("Voeg minstens één smaak toe die de klant krijgt.");
 
     const bedrag = round2(Number(String(formData.get("bedrag") || "0").replace(",", ".")));
@@ -371,25 +395,16 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
     const datumRaw = String(formData.get("datum") || "").trim();
     const datum = datumRaw ? new Date(datumRaw) : undefined;
 
-    // Optioneel: de werkelijke inkoopprijs van de hele bijbestelling (bv. een doos
-    // die € 440 kostte). Is dit ingevuld, dan verdelen we dat bedrag gelijkmatig over
-    // alle bestelde pakjes i.p.v. de gemiddelde inkoopprijs te gebruiken — zo klopt de
-    // winst exact. Leeg = automatisch (gemiddelde inkoopprijs per smaak).
-    const totalInkoopPakjes = inkoop.reduce((sum, row) => sum + row.rollen * BAKJES_PER_ROL, 0);
-    const inkoopTotaalRaw = String(formData.get("inkoopTotaal") || "").replace(",", ".").trim();
-    const inkoopTotaal = inkoopTotaalRaw ? Number(inkoopTotaalRaw) : null;
-    if (inkoopTotaalRaw && !(Number(inkoopTotaal) >= 0)) throw new Error("Vul een geldige inkoopprijs in.");
-    const manualPrijsPerStuk =
-      inkoopTotaal && inkoopTotaal > 0 && totalInkoopPakjes > 0 ? inkoopTotaal / totalInkoopPakjes : null;
-
     await prisma.$transaction(async (tx) => {
-      let dealInkoopBedrag = inkoopTotaal ?? 0;
-      if (!inkoopTotaal) {
-        for (const row of inkoop) {
-          const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
-          if (!variant) throw new Error("Variant bestaat niet.");
-          dealInkoopBedrag += row.rollen * BAKJES_PER_ROL * Number(variant.inkoopPrijs);
-        }
+      // Totale inkoopkosten van de deal, uit de per-regel prijs (of de bekende
+      // gemiddelde inkoopprijs als de prijs leeg is). Wordt op de verkoop bewaard
+      // zodat de doorverkoop-winst apart geteld wordt.
+      let dealInkoopBedrag = 0;
+      for (const row of inkoop) {
+        const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
+        if (!variant) throw new Error("Variant bestaat niet.");
+        const perStuk = row.prijsPerRol != null ? row.prijsPerRol / BAKJES_PER_ROL : Number(variant.inkoopPrijs);
+        dealInkoopBedrag += row.rollen * BAKJES_PER_ROL * perStuk;
       }
       // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
       await createSaleFromInput(tx, {
@@ -411,7 +426,8 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
         const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
         if (!variant) throw new Error("Variant bestaat niet.");
         const aantal = row.rollen * BAKJES_PER_ROL;
-        const prijsPerStuk = manualPrijsPerStuk ?? Number(variant.inkoopPrijs);
+        // Prijs per regel: ingevuld = die prijs per rol, leeg = bekende gemiddelde inkoopprijs.
+        const prijsPerStuk = row.prijsPerRol != null ? row.prijsPerRol / BAKJES_PER_ROL : Number(variant.inkoopPrijs);
         const nextInkoop = variant.voorraad
           ? (Number(variant.inkoopPrijs) * variant.voorraad + prijsPerStuk * aantal) / (variant.voorraad + aantal)
           : prijsPerStuk;
@@ -425,7 +441,8 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
             rollen: row.rollen,
             aantal,
             prijsPerRol: new Prisma.Decimal((prijsPerStuk * BAKJES_PER_ROL).toFixed(2)),
-            prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4))
+            prijsPerStuk: new Prisma.Decimal(prijsPerStuk.toFixed(4)),
+            datum
           }
         });
       }
