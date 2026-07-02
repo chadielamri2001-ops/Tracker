@@ -1768,7 +1768,9 @@ function SalesView({ data }: { data: TrackerData }) {
   const customAmount = Number(customPrice.replace(",", ".")) || 0;
   const base =
     mode === "mix"
-      ? mixPrice(data) * rolAantal
+      ? priceMode === "aangepast"
+        ? customAmount
+        : mixPrice(data) * rolAantal
       : isRol
         ? priceMode === "aangepast"
           ? customAmount
@@ -2025,21 +2027,21 @@ function SalesView({ data }: { data: TrackerData }) {
             </div>
           )}
 
-          {mode !== "mix" ? (
-            <div className="segmented">
-              <button className={priceMode === "standaard" ? "active" : ""} onClick={() => setPriceMode("standaard")} type="button">
-                Standaard
-              </button>
+          <div className="segmented">
+            <button className={priceMode === "standaard" ? "active" : ""} onClick={() => setPriceMode("standaard")} type="button">
+              Standaard
+            </button>
+            {mode !== "mix" ? (
               <button className={priceMode === "vasteKlant" ? "active" : ""} onClick={() => setPriceMode("vasteKlant")} type="button">
                 Vaste klant
               </button>
-              <button className={priceMode === "aangepast" ? "active" : ""} onClick={() => setPriceMode("aangepast")} type="button">
-                Aangepast
-              </button>
-            </div>
-          ) : null}
+            ) : null}
+            <button className={priceMode === "aangepast" ? "active" : ""} onClick={() => setPriceMode("aangepast")} type="button">
+              Aangepast
+            </button>
+          </div>
 
-          {priceMode === "aangepast" && mode !== "mix" ? (
+          {priceMode === "aangepast" ? (
             <label>
               Aangepaste prijs
               <input inputMode="decimal" value={customPrice} onChange={(event) => setCustomPrice(event.target.value)} placeholder="7,20" />
