@@ -466,6 +466,35 @@ export async function adjustStock(_prev: ActionState, formData: FormData): Promi
   });
 }
 
+const stockCountRowsSchema = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Ongeldige telling." });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.array(z.object({ variantId: z.string().cuid(), aantal: z.coerce.number().int().min(0).max(100000) })).max(300));
+
+// Voorraadtelling: zet per product de voorraad exact op het getelde aantal.
+export async function applyStockCount(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:stock");
+    const rows = parse(stockCountRowsSchema, String(formData.get("rows") || "[]"));
+    if (rows.length === 0) throw new Error("Niets gewijzigd om bij te werken.");
+
+    await prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        await tx.variant.update({ where: { id: row.variantId }, data: { voorraad: row.aantal } });
+      }
+    });
+
+    revalidatePath("/");
+  });
+}
+
 export async function addSale(formData: FormData) {
   await guardWrite("write:sale");
   const input = parse(saleInputSchema, Object.fromEntries(formData));

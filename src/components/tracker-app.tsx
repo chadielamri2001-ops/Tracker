@@ -34,6 +34,7 @@ import {
   addMultiSale,
   addPurchases,
   adjustStock,
+  applyStockCount,
   confirmConcept,
   deleteConcept,
   deleteDebt,
@@ -2661,7 +2662,93 @@ function StockAdjustForm({ data }: { data: TrackerData }) {
   );
 }
 
+// Voorraadtelling: per product je fysieke telling invullen (rol + losse bakjes),
+// voorgevuld met de huidige stand. Alleen gewijzigde regels worden weggeschreven.
+function StockCountForm({ data }: { data: TrackerData }) {
+  const [countState, countAction] = useActionState(applyStockCount, null);
+  const variants = useMemo(() => data.variants.filter((variant) => !isImportBucket(variant.merk)), [data]);
+  const [counts, setCounts] = useState<Record<string, { rol: string; los: string }>>(() =>
+    Object.fromEntries(
+      variants.map((variant) =>
+        variant.productType === ProductType.VAPE
+          ? [variant.id, { rol: "0", los: String(variant.voorraad) }]
+          : [variant.id, { rol: String(Math.floor(variant.voorraad / BAKJES_PER_ROL)), los: String(variant.voorraad % BAKJES_PER_ROL) }]
+      )
+    )
+  );
+  const setCount = (id: string, patch: Partial<{ rol: string; los: string }>) =>
+    setCounts((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } }));
+
+  const countedOf = (variant: TrackerData["variants"][number]) => {
+    const value = counts[variant.id] ?? { rol: "0", los: "0" };
+    return variant.productType === ProductType.VAPE
+      ? Number(value.los) || 0
+      : (Number(value.rol) || 0) * BAKJES_PER_ROL + (Number(value.los) || 0);
+  };
+  const changed = variants.filter((variant) => countedOf(variant) !== variant.voorraad);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, TrackerData["variants"]>();
+    for (const variant of variants) {
+      const key = `${variant.productType}:${variant.merk}`;
+      map.set(key, [...(map.get(key) || []), variant]);
+    }
+    return [...map.entries()];
+  }, [variants]);
+
+  return (
+    <Panel title="Voorraad tellen">
+      <p className="muted field-label">Vul per product je fysieke telling in (rollen + losse bakjes, voorgevuld met de huidige stand). Alleen gewijzigde regels worden bijgewerkt.</p>
+      <form action={countAction} className="stack">
+        <input type="hidden" name="rows" value={JSON.stringify(changed.map((variant) => ({ variantId: variant.id, aantal: countedOf(variant) })))} />
+        <div className="count-list">
+          {groups.map(([key, vs]) => {
+            const merk = key.split(":")[1];
+            return (
+              <Fragment key={key}>
+                <div className="count-merk">{merk}</div>
+                {vs.map((variant) => {
+                  const value = counts[variant.id] ?? { rol: "0", los: "0" };
+                  const diff = countedOf(variant) - variant.voorraad;
+                  const isVape = variant.productType === ProductType.VAPE;
+                  return (
+                    <div className="count-row" key={variant.id}>
+                      <span className="count-name">{variant.smaak}<small className="muted"> · nu {variant.voorraad}</small></span>
+                      <span className="count-inputs">
+                        {isVape ? (
+                          <>
+                            <input inputMode="numeric" value={value.los} onChange={(event) => setCount(variant.id, { los: event.target.value })} aria-label={`${variant.smaak} stuks`} />
+                            <span className="muted">st</span>
+                          </>
+                        ) : (
+                          <>
+                            <input inputMode="numeric" value={value.rol} onChange={(event) => setCount(variant.id, { rol: event.target.value })} aria-label={`${variant.smaak} rollen`} />
+                            <span className="muted">rol</span>
+                            <input inputMode="numeric" value={value.los} onChange={(event) => setCount(variant.id, { los: event.target.value })} aria-label={`${variant.smaak} losse`} />
+                            <span className="muted">los</span>
+                          </>
+                        )}
+                      </span>
+                      <span className={`count-diff${diff === 0 ? "" : diff > 0 ? " up" : " down"}`}>{diff === 0 ? "✓" : `${diff > 0 ? "+" : ""}${diff}`}</span>
+                    </div>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
+        <div className="summary-row">
+          <span className="muted">{changed.length === 0 ? "Alles klopt met de telling" : `${changed.length} product${changed.length === 1 ? "" : "en"} gewijzigd`}</span>
+          <SubmitButton disabled={changed.length === 0}>Voorraad bijwerken</SubmitButton>
+        </div>
+        <FormFeedback state={countState} successLabel="Voorraad bijgewerkt" />
+      </form>
+    </Panel>
+  );
+}
+
 function StockView({ data }: { data: TrackerData }) {
+  const [section, setSection] = useState<"overzicht" | "tellen">("overzicht");
   const grouped = data.variants.reduce<Map<string, TrackerData["variants"]>>((map, variant) => {
     const key = `${variant.productType}:${variant.merk}`;
     map.set(key, [...(map.get(key) || []), variant]);
@@ -2678,6 +2765,11 @@ function StockView({ data }: { data: TrackerData }) {
   return (
     <section>
       <h1>Voorraad</h1>
+      <SubNav value={section} items={[["overzicht", "Overzicht"], ["tellen", "Tellen"]]} onChange={setSection} />
+      {section === "tellen" ? (
+        <StockCountForm data={data} />
+      ) : (
+      <>
       <div className="metric-grid compact">
         <Metric label="Voorraad totaal" value={`${totalStock} stuks`} />
         <Metric label="Snus" value={stockRolls(snusStock)} />
@@ -2742,6 +2834,8 @@ function StockView({ data }: { data: TrackerData }) {
           </div>
         )}
       </Panel>
+      </>
+      )}
     </section>
   );
 }

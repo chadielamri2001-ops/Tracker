@@ -1383,6 +1383,18 @@ td:last-child, th:last-child { white-space: nowrap; }
 .deal-summary { display: grid; gap: 2px; margin: var(--space-3) 0 var(--space-2); }
 .deal-cash { border-top: 1px solid var(--border); margin-top: var(--space-2); padding-top: var(--space-3); }
 .deal-cash strong { font-size: var(--text-lg); }
+
+/* Voorraad tellen */
+.count-list { display: grid; gap: 0; }
+.count-merk { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: var(--fw-bold); margin: var(--space-3) 0 var(--space-1); }
+.count-row { display: flex; align-items: center; gap: var(--space-2); padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+.count-name { flex: 1; min-width: 0; font-size: var(--text-sm); }
+.count-inputs { display: inline-flex; align-items: center; gap: 0.3rem; }
+.count-inputs input { width: 52px; text-align: center; padding: 0.35rem; }
+.count-inputs .muted { font-size: var(--text-xs); }
+.count-diff { width: 46px; text-align: right; font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
+.count-diff.up { color: var(--success); }
+.count-diff.down { color: var(--danger); }
 .sale-item-editor {
   width: 100%;
   display: grid;
