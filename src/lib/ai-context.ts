@@ -114,6 +114,23 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
     transacties: curr.transacties
   });
 
+  // Maand-voor-maand historie over alle beschikbare data, zodat de AI de echte
+  // lange-termijntrend ziet — en eerlijk kan zijn over hoe ver de historie reikt.
+  const maandMap = new Map<string, { omzet: number; winst: number; stuks: number; transacties: number }>();
+  for (const day of days) {
+    const maand = day.date.slice(0, 7);
+    const entry = maandMap.get(maand) ?? { omzet: 0, winst: 0, stuks: 0, transacties: 0 };
+    entry.omzet += day.omzet;
+    entry.winst += day.winst;
+    entry.stuks += day.stuks;
+    entry.transacties += day.transacties;
+    maandMap.set(maand, entry);
+  }
+  const maandhistorie = [...maandMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([maand, s]) => ({ maand, omzet: round2(s.omzet), winst: round2(s.winst), margePct: marginPct(s.omzet, s.winst), stuks: s.stuks, transacties: s.transacties }));
+  const actieveDagen = days.filter((day) => day.omzet > 0 || day.stuks > 0).length;
+
   return {
     gegenereerdOp: new Date().toISOString(),
     valuta: "EUR",
@@ -126,6 +143,12 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
       dezeMaand: periode(dezeMaand),
       alleTijd: { ...periode(analytics.allTime), margePct: marginPct(analytics.allTime.omzet, analytics.allTime.winst) }
     },
+    dataReeks: {
+      vanaf: days.length ? days[0].date : null,
+      aantalMaanden: maandhistorie.length,
+      actieveVerkoopdagen: actieveDagen
+    },
+    maandhistorie,
     forecastVerwachting: forecast,
     weekdagen,
     besteDag: analytics.bestDay,
