@@ -1960,7 +1960,7 @@ function SalesView({ data }: { data: TrackerData }) {
               <span className="qty">Mix rol</span>
               <span className="prijs">{euro(mixPrice(data))}</span>
             </button>
-            {[1, 2, 3].map((quantity) => {
+            {[1, 2, 3, 4].map((quantity) => {
               const vapeId = firstVariantId(data, [ProductType.VAPE]);
               const selectedVariant = mode === "normal" ? normalItem.variantId : items[0]?.variantId;
               const selected = Boolean(vapeId) && selectedVariant === vapeId && saleQty === quantity;
