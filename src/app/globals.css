@@ -1616,10 +1616,8 @@ td:last-child, th:last-child { white-space: nowrap; }
   gap: var(--space-3);
 }
 .debt-person-card {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
   gap: var(--space-3);
-  align-items: center;
   padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1651,10 +1649,10 @@ td:last-child, th:last-child { white-space: nowrap; }
 }
 .debt-person-total {
   display: grid;
-  justify-items: end;
   gap: 0.45rem;
 }
 .debt-person-total > strong {
+  justify-self: end;
   font-size: var(--text-md);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
