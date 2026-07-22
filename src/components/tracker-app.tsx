@@ -42,6 +42,7 @@ import {
   deleteSale,
   markAllDebtsPaid,
   markDebtPaid,
+  payDebtAmount,
   savePrices,
   updateSale
 } from "@/server/actions";
@@ -504,6 +505,11 @@ function debtDescription(debt: TrackerData["debts"][number]) {
   if (!debt.sale) return "Handmatig toegevoegd";
   const items = debt.sale.items.map((item) => saleItemLabel(item)).join(", ");
   return debt.sale.kind === SaleKind.MIX ? `Mix rol: ${items}` : items;
+}
+
+// Wat er nog van een pofpost openstaat: het bedrag minus wat er al is afbetaald.
+function debtOpen(debt: TrackerData["debts"][number]) {
+  return Math.max(0, debt.bedrag - (debt.afbetaald ?? 0));
 }
 
 function debtAgeDays(debt: TrackerData["debts"][number]) {
@@ -1008,7 +1014,7 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
   const previousStats = previousBounds ? sumDays(analytics.days, previousBounds) : null;
   const voorraadWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
-  const openPof = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
+  const openPof = openDebts.reduce((sum, debt) => sum + debtOpen(debt), 0);
   const openPofPeople = new Set(openDebts.map((debt) => debt.naam)).size;
   const periodTitle = period === "week" && adminPeriod ? `periode ${adminPeriod.weekNumber}` : periodLabel(period);
   const periodSub = period === "alles" ? "vanaf 17 april 2026" : undefined;
@@ -3220,12 +3226,57 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
   );
 }
 
+// Eén persoon op de poflijst: toont het openstaande restbedrag en een invoerveld
+// om een (deel)betaling af te boeken zonder posten te hoeven verwijderen.
+function DebtPersonCard({ naam, debts, maxPersonTotal }: { naam: string; debts: TrackerData["debts"]; maxPersonTotal: number }) {
+  const [payState, payAction] = useActionState(payDebtAmount, null);
+  const [amount, setAmount] = useState("");
+  const personTotal = debts.reduce((sum, debt) => sum + debtOpen(debt), 0);
+  const alAfbetaald = debts.reduce((sum, debt) => sum + (debt.afbetaald ?? 0), 0);
+  const latestDebt = [...debts].sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())[0];
+  useEffect(() => {
+    if (payState?.ok) {
+      notify("Betaling afgeboekt", "success");
+      setAmount("");
+    }
+  }, [payState]);
+  return (
+    <article className="debt-person-card">
+      <div>
+        <strong>{naam}</strong>
+        <span>{debts.length} open post{debts.length > 1 ? "en" : ""} - laatst {latestDebt ? dateNl(latestDebt.datum) : "-"}</span>
+        {alAfbetaald > 0 ? <span className="debt-person-paid">{euro(alAfbetaald)} al afbetaald</span> : null}
+        <div className="debt-person-bar" aria-hidden="true"><span style={{ width: `${Math.max(6, (personTotal / maxPersonTotal) * 100)}%` }} /></div>
+      </div>
+      <div className="debt-person-total">
+        <strong>{euro(personTotal)}</strong>
+        <form action={payAction} className="debt-pay-form">
+          <input type="hidden" name="naam" value={naam} />
+          <input
+            name="bedrag"
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="Bedrag betaald"
+            aria-label={`Afgeboekt bedrag voor ${naam}`}
+          />
+          <SubmitButton>Afboeken</SubmitButton>
+        </form>
+        {payState && !payState.ok ? <span className="action-error" role="alert">{payState.error}</span> : null}
+        <ActionButton action={markAllDebtsPaid} fields={{ naam }} className="ghost" successToast="Alles op betaald gezet">
+          Markeer alles betaald
+        </ActionButton>
+      </div>
+    </article>
+  );
+}
+
 function DebtView({ data }: { data: TrackerData }) {
   const [section, setSection] = useState<DebtSection>("personen");
   const [query, setQuery] = useState("");
   const [debtState, debtAction] = useActionState(addDebt, null);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
-  const total = openDebts.reduce((sum, debt) => sum + debt.bedrag, 0);
+  const total = openDebts.reduce((sum, debt) => sum + debtOpen(debt), 0);
   const knownNames = uniqueValues([
     ...data.debts.map((debt) => debt.naam),
     ...data.sales.map((sale) => sale.klantNaam || "")
@@ -3235,7 +3286,7 @@ function DebtView({ data }: { data: TrackerData }) {
     return map;
   }, new Map());
   const groupedEntries = [...grouped.entries()].sort(
-    (a, b) => b[1].reduce((sum, debt) => sum + debt.bedrag, 0) - a[1].reduce((sum, debt) => sum + debt.bedrag, 0)
+    (a, b) => b[1].reduce((sum, debt) => sum + debtOpen(debt), 0) - a[1].reduce((sum, debt) => sum + debtOpen(debt), 0)
   );
   const sortedOpenDebts = [...openDebts].sort((a, b) => {
     const dateDiff = new Date(b.datum).getTime() - new Date(a.datum).getTime();
@@ -3245,12 +3296,12 @@ function DebtView({ data }: { data: TrackerData }) {
     const haystack = `${debt.naam} ${debtDescription(debt)} ${dateNl(debt.datum)}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
   });
-  const maxPersonTotal = Math.max(1, ...groupedEntries.map(([, debts]) => debts.reduce((sum, debt) => sum + debt.bedrag, 0)));
+  const maxPersonTotal = Math.max(1, ...groupedEntries.map(([, debts]) => debts.reduce((sum, debt) => sum + debtOpen(debt), 0)));
   const todayOpen = openDebts.filter((debt) => debtAgeDays(debt) <= 7);
   const agingOpen = openDebts.filter((debt) => debtAgeDays(debt) > 7 && debtAgeDays(debt) <= 30);
   const oldOpen = openDebts.filter((debt) => debtAgeDays(debt) > 30);
   const largestPerson = groupedEntries[0] || null;
-  const largestPersonTotal = largestPerson ? largestPerson[1].reduce((sum, debt) => sum + debt.bedrag, 0) : 0;
+  const largestPersonTotal = largestPerson ? largestPerson[1].reduce((sum, debt) => sum + debtOpen(debt), 0) : 0;
   const oldestDebt = [...openDebts].sort((a, b) => debtAgeDays(b) - debtAgeDays(a))[0] || null;
 
   return (
@@ -3321,25 +3372,9 @@ function DebtView({ data }: { data: TrackerData }) {
           <>
           <Panel title="Personen">
             <div className="debt-person-grid ledger">
-              {groupedEntries.map(([naam, debts]) => {
-                const personTotal = debts.reduce((sum, debt) => sum + debt.bedrag, 0);
-                const latestDebt = [...debts].sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())[0];
-                return (
-                  <article className="debt-person-card" key={naam}>
-                    <div>
-                      <strong>{naam}</strong>
-                      <span>{debts.length} open post{debts.length > 1 ? "en" : ""} - laatst {latestDebt ? dateNl(latestDebt.datum) : "-"}</span>
-                      <div className="debt-person-bar" aria-hidden="true"><span style={{ width: `${Math.max(6, (personTotal / maxPersonTotal) * 100)}%` }} /></div>
-                    </div>
-                    <div className="debt-person-total">
-                      <strong>{euro(personTotal)}</strong>
-                      <ActionButton action={markAllDebtsPaid} fields={{ naam }} className="" successToast="Alles op betaald gezet">
-                        Markeer alles betaald
-                      </ActionButton>
-                    </div>
-                  </article>
-                );
-              })}
+              {groupedEntries.map(([naam, debts]) => (
+                <DebtPersonCard key={naam} naam={naam} debts={debts} maxPersonTotal={maxPersonTotal} />
+              ))}
             </div>
           </Panel>
           <Panel title="Opvolging">
@@ -3372,8 +3407,9 @@ function DebtView({ data }: { data: TrackerData }) {
                       </div>
                     </div>
                     <div className="debt-post-amount">
-                      <small>Bedrag</small>
-                      <strong>{euro(debt.bedrag)}</strong>
+                      <small>{debt.afbetaald > 0 ? "Nog open" : "Bedrag"}</small>
+                      <strong>{euro(debtOpen(debt))}</strong>
+                      {debt.afbetaald > 0 ? <em className="debt-post-paid">{euro(debt.afbetaald)} van {euro(debt.bedrag)} betaald</em> : null}
                     </div>
                   </div>
                   <div className="debt-post-actions">

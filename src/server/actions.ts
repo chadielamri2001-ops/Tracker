@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import {
   debtInputSchema,
+  debtPaymentInputSchema,
   giveawayInputSchema,
   idSchema,
   multiSaleInputSchema,
@@ -727,6 +728,54 @@ export async function markAllDebtsPaid(_prev: ActionState, formData: FormData): 
         data: { pofBetaald: true, paidAt: now }
       })
     ]);
+    revalidatePath("/");
+  });
+}
+
+// Boekt een (deel)betaling af op de openstaande pof van één persoon. Het bedrag
+// wordt over de open posten verdeeld, oudste eerst: elke post wordt volgeboekt
+// tot het geld op is. Een post die daarmee helemaal is afbetaald, gaat op
+// betaald (en de gekoppelde verkoop mee). Zo hoeft er nooit iets verwijderd te
+// worden om een betaling te registreren.
+export async function payDebtAmount(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    await guardWrite("write:debt");
+    const input = parse(debtPaymentInputSchema, Object.fromEntries(formData));
+    const now = new Date();
+    const openDebts = await prisma.debt.findMany({
+      where: { naam: input.naam, betaald: false },
+      orderBy: [{ datum: "asc" }, { createdAt: "asc" }]
+    });
+    if (openDebts.length === 0) {
+      throw new Error(`${input.naam} heeft geen openstaande pof.`);
+    }
+    const totaalOpen = round2(openDebts.reduce((sum, debt) => sum + (Number(debt.bedrag) - Number(debt.afbetaald)), 0));
+    if (input.bedrag > totaalOpen + 0.001) {
+      const openTekst = `€${totaalOpen.toFixed(2).replace(".", ",")}`;
+      throw new Error(`${input.naam} heeft maar ${openTekst} openstaan. Voer maximaal dat bedrag in.`);
+    }
+    let resterend = round2(input.bedrag);
+    const updates: Prisma.PrismaPromise<unknown>[] = [];
+    for (const debt of openDebts) {
+      if (resterend <= 0) break;
+      const open = round2(Number(debt.bedrag) - Number(debt.afbetaald));
+      const betaling = Math.min(open, resterend);
+      const nieuwAfbetaald = round2(Number(debt.afbetaald) + betaling);
+      const volledig = nieuwAfbetaald >= round2(Number(debt.bedrag)) - 0.001;
+      updates.push(
+        prisma.debt.update({
+          where: { id: debt.id },
+          data: volledig
+            ? { afbetaald: decimal(Number(debt.bedrag)), betaald: true, paidAt: now }
+            : { afbetaald: decimal(nieuwAfbetaald) }
+        })
+      );
+      if (volledig && debt.saleId) {
+        updates.push(prisma.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } }));
+      }
+      resterend = round2(resterend - betaling);
+    }
+    await prisma.$transaction(updates);
     revalidatePath("/");
   });
 }

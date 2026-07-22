@@ -79,6 +79,7 @@ export async function getTrackerData() {
       id: debt.id,
       naam: debt.naam,
       bedrag: Number(debt.bedrag),
+      afbetaald: Number(debt.afbetaald),
       betaald: debt.betaald,
       datum: debt.datum.toISOString(),
       sale: debt.sale

@@ -106,6 +106,12 @@ export const debtInputSchema = z.object({
   bedrag: money
 });
 
+// Deelbetaling afboeken op de openstaande pof van één persoon: naam + betaald bedrag.
+export const debtPaymentInputSchema = z.object({
+  naam: z.string().trim().min(1).max(120),
+  bedrag: money
+});
+
 export const idSchema = z.object({
   id: z.string().cuid()
 });
@@ -195,6 +201,7 @@ export const trackerDataSchema = z.object({
       id: z.string(),
       naam: z.string(),
       bedrag: z.number(),
+      afbetaald: z.number().default(0),
       betaald: z.boolean(),
       datum: z.string(),
       sale: z
