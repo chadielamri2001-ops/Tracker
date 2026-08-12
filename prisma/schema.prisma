@@ -95,6 +95,7 @@ model Sale {
   klantNaam    String?
   pofBetaald   Boolean       @default(false)
   gratis       Boolean       @default(false)
+  voorraadGeboekt Boolean    @default(true)
   paidAt       DateTime?
   createdAt    DateTime      @default(now())
   items        SaleItem[]

@@ -2276,16 +2276,25 @@ function SaleItemEditor({
 function DealView({ data }: { data: TrackerData }) {
   const [dealState, dealAction] = useActionState(addDeal, null);
   const snusDefault = firstVariantId(data, [ProductType.SNUS]);
+  const [modus, setModus] = useState<"voorraad" | "direct">("voorraad");
   const [verkoopItems, setVerkoopItems] = useState<DraftItem[]>([{ variantId: snusDefault, aantal: 1 }]);
   const [inkoopItems, setInkoopItems] = useState<Array<DraftItem & { prijs: string }>>([{ variantId: snusDefault, aantal: 1, prijs: "" }]);
+  const [directItems, setDirectItems] = useState<Array<DraftItem & { prijs: string }>>([{ variantId: snusDefault, aantal: 1, prijs: "" }]);
   const [price, setPrice] = useState("");
   const [payment, setPayment] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [customerName, setCustomerName] = useState("");
   const [dealDate, setDealDate] = useState(dateInputValue(new Date()));
 
   const variantById = (id: string) => data.variants.find((variant) => variant.id === id);
+  const isDirect = modus === "direct";
   const cleanVerkoop = verkoopItems.filter((item) => item.variantId && item.aantal > 0);
   const cleanInkoop = inkoopItems.filter((item) => item.variantId && item.aantal > 0);
+  const cleanDirect = directItems.filter((item) => item.variantId && item.aantal > 0);
+  // Wat de klant kreeg en waar we de inkoopkosten van nemen. Bij "uit voorraad"
+  // zijn dit twee losse lijsten (andere smaken mogen); bij "direct" is het één
+  // lijst (wat verkocht is, met de inkoopprijs ervan).
+  const saleRows = isDirect ? cleanDirect : cleanVerkoop;
+  const costRows = isDirect ? cleanDirect : cleanInkoop;
   const omzet = Number(price.replace(",", ".")) || 0;
   // Prijs per regel (per rol): ingevuld = die prijs, leeg = bekende gemiddelde inkoopprijs.
   const inkoopPerRol = (item: DraftItem & { prijs: string }) => {
@@ -2294,66 +2303,105 @@ function DealView({ data }: { data: TrackerData }) {
     const variant = variantById(item.variantId);
     return variant ? Number(variant.inkoopPrijs) * BAKJES_PER_ROL : 0;
   };
-  const inkoopKosten = cleanInkoop.reduce((sum, item) => sum + item.aantal * inkoopPerRol(item), 0);
+  const inkoopKosten = costRows.reduce((sum, item) => sum + item.aantal * inkoopPerRol(item), 0);
   const cashVerschil = omzet - inkoopKosten;
 
   // Voorraad-saldo per smaak: inkoop telt op (+rol), verkoop trekt af (−rol).
+  // Alleen relevant bij een deal uit eigen voorraad; direct raakt de voorraad niet.
   const saldo = new Map<string, number>();
   for (const item of cleanInkoop) saldo.set(item.variantId, (saldo.get(item.variantId) ?? 0) + item.aantal);
   for (const item of cleanVerkoop) saldo.set(item.variantId, (saldo.get(item.variantId) ?? 0) - item.aantal);
-  const saldoEntries = [...saldo.entries()].filter(([, n]) => n !== 0);
+  const saldoEntries = isDirect ? [] : [...saldo.entries()].filter(([, n]) => n !== 0);
 
   const hasPof = payment === PaymentMethod.POF;
-  const canSubmit = omzet > 0 && cleanVerkoop.length > 0 && (!hasPof || customerName.trim().length > 0);
+  const canSubmit = omzet > 0 && saleRows.length > 0 && (!hasPof || customerName.trim().length > 0);
 
   const setV = (index: number, patch: Partial<DraftItem>) =>
     setVerkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
   const setI = (index: number, patch: Partial<DraftItem & { prijs: string }>) =>
     setInkoopItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+  const setD = (index: number, patch: Partial<DraftItem & { prijs: string }>) =>
+    setDirectItems((cur) => cur.map((it, i) => (i === index ? { ...it, ...patch } : it)));
 
   return (
     <section className="stack">
       <DealOverview data={data} />
-      <p className="muted">Geleverd uit eigen voorraad én bijbesteld in één handeling. De app boekt de verkoop (jouw prijs) en de inkoop samen — elke smaak houdt zijn eigen voorraad bij, dus niets raakt in de war.</p>
       <form action={dealAction} className="stack">
-        <div className="sale-workspace">
-          <Panel title="Klant krijgt — uit voorraad">
-            <div className="deal-rows">
-              {verkoopItems.map((item, index) => (
-                <div className="deal-row" key={`v${index}`}>
-                  <SaleItemEditor data={data} item={item} onChange={(next) => setV(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
-                  {verkoopItems.length > 1 ? (
-                    <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setVerkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <button type="button" className="ghost" onClick={() => setVerkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1 }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
-          </Panel>
+        <div className="segmented" role="group" aria-label="Soort doorverkoop">
+          <button type="button" className={!isDirect ? "active" : ""} onClick={() => setModus("voorraad")}>Uit eigen voorraad</button>
+          <button type="button" className={isDirect ? "active" : ""} onClick={() => setModus("direct")}>Direct / voorverkocht</button>
+        </div>
+        <p className="muted">
+          {isDirect
+            ? "Direct verkocht of voorverkocht: er wordt niets van je eigen voorraad gebruikt. Je legt alleen vast wat de klant betaalt en wat het jou kostte — de winst komt apart in het doorverkoop-overzicht."
+            : "Geleverd uit eigen voorraad én bijbesteld in één handeling. De app boekt de verkoop (jouw prijs) en de inkoop samen — elke smaak houdt zijn eigen voorraad bij, dus niets raakt in de war."}
+        </p>
 
-          <Panel title="Ik bestel — bijbestellen">
+        {isDirect ? (
+          <Panel title="Direct verkocht — geen eigen voorraad">
             <div className="deal-rows">
-              {inkoopItems.map((item, index) => {
+              {directItems.map((item, index) => {
                 const variant = variantById(item.variantId);
                 const autoPerRol = variant ? (Number(variant.inkoopPrijs) * BAKJES_PER_ROL).toFixed(2) : "auto";
                 return (
-                  <div className="deal-row" key={`i${index}`}>
-                    <SaleItemEditor data={data} item={item} onChange={(next) => setI(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                  <div className="deal-row" key={`d${index}`}>
+                    <SaleItemEditor data={data} item={item} onChange={(next) => setD(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
                     <label className="deal-price">
-                      Prijs/rol
-                      <input inputMode="decimal" value={item.prijs} onChange={(event) => setI(index, { prijs: event.target.value })} placeholder={autoPerRol} />
+                      Inkoop/rol
+                      <input inputMode="decimal" value={item.prijs} onChange={(event) => setD(index, { prijs: event.target.value })} placeholder={autoPerRol} />
                     </label>
-                    <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setInkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                    {directItems.length > 1 ? (
+                      <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setDirectItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
             <div className="button-row">
-              <button type="button" className="ghost" onClick={() => setInkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1, prijs: "" }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+              <button type="button" className="ghost" onClick={() => setDirectItems((cur) => [...cur, { variantId: snusDefault, aantal: 1, prijs: "" }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
             </div>
-            <p className="muted field-label">Prijs per rol leeg = de bekende inkoopprijs. Bij een doos: vul de prijs per rol in (bv. doos € 440 / 24 rol = € 18,33).</p>
+            <p className="muted field-label">Inkoop/rol leeg = de bekende inkoopprijs. Dit telt alleen mee voor de winst; er wordt niets bijbesteld of afgeboekt.</p>
           </Panel>
-        </div>
+        ) : (
+          <div className="sale-workspace">
+            <Panel title="Klant krijgt — uit voorraad">
+              <div className="deal-rows">
+                {verkoopItems.map((item, index) => (
+                  <div className="deal-row" key={`v${index}`}>
+                    <SaleItemEditor data={data} item={item} onChange={(next) => setV(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                    {verkoopItems.length > 1 ? (
+                      <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setVerkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost" onClick={() => setVerkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1 }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+            </Panel>
+
+            <Panel title="Ik bestel — bijbestellen">
+              <div className="deal-rows">
+                {inkoopItems.map((item, index) => {
+                  const variant = variantById(item.variantId);
+                  const autoPerRol = variant ? (Number(variant.inkoopPrijs) * BAKJES_PER_ROL).toFixed(2) : "auto";
+                  return (
+                    <div className="deal-row" key={`i${index}`}>
+                      <SaleItemEditor data={data} item={item} onChange={(next) => setI(index, next)} showCount countLabel="Rollen" productTypes={[ProductType.SNUS]} />
+                      <label className="deal-price">
+                        Prijs/rol
+                        <input inputMode="decimal" value={item.prijs} onChange={(event) => setI(index, { prijs: event.target.value })} placeholder={autoPerRol} />
+                      </label>
+                      <button type="button" className="ghost icon-only" aria-label="Regel verwijderen" onClick={() => setInkoopItems((cur) => cur.filter((_, i) => i !== index))}><IconTrash size={16} /></button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="button-row">
+                <button type="button" className="ghost" onClick={() => setInkoopItems((cur) => [...cur, { variantId: snusDefault, aantal: 1, prijs: "" }])}><IconPlus size={16} /><span>Smaak toevoegen</span></button>
+              </div>
+              <p className="muted field-label">Prijs per rol leeg = de bekende inkoopprijs. Bij een doos: vul de prijs per rol in (bv. doos € 440 / 24 rol = € 18,33).</p>
+            </Panel>
+          </div>
+        )}
 
         <Panel title="Deal afronden">
           <div className="form-grid">
@@ -2392,8 +2440,9 @@ function DealView({ data }: { data: TrackerData }) {
             </div>
           ) : null}
 
-          <input type="hidden" name="verkoop" value={JSON.stringify(cleanVerkoop.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
-          <input type="hidden" name="inkoop" value={JSON.stringify(cleanInkoop.map((item) => {
+          <input type="hidden" name="modus" value={modus} />
+          <input type="hidden" name="verkoop" value={JSON.stringify(saleRows.map((item) => ({ variantId: item.variantId, rollen: item.aantal })))} />
+          <input type="hidden" name="inkoop" value={JSON.stringify(costRows.map((item) => {
             const manual = item.prijs.trim() ? Number(item.prijs.replace(",", ".")) : null;
             return manual != null && manual >= 0
               ? { variantId: item.variantId, rollen: item.aantal, prijsPerRol: manual }

@@ -143,10 +143,15 @@ async function createSaleFromInput(
     klantNaam?: string;
     datum?: Date;
     trackPerformance?: boolean;
+    affectStock?: boolean;
   }
 ) {
   const gratis = input.gratis ?? false;
   const trackPerformance = input.trackPerformance ?? true;
+  // Of deze verkoop de voorraad afboekt. Bij een directe/voorverkochte doorverkoop
+  // komt er niets uit eigen voorraad; we bewaren de regels wél (voor de omschrijving)
+  // maar raken de voorraad niet aan.
+  const affectStock = input.affectStock ?? true;
   // Gratis weggeven: €0 omzet, geen betaaldelen en geen pofschuld. De inkoopkosten
   // tellen wél mee (via de saleItems), zodat de winst correct daalt.
   const { effective, pofDeel, primair } = gratis
@@ -164,7 +169,7 @@ async function createSaleFromInput(
   for (const item of input.items) {
     const variant = byId.get(item.variantId);
     if (!variant) throw new Error("Variant bestaat niet.");
-    if (variant.voorraad < item.aantal) {
+    if (affectStock && variant.voorraad < item.aantal) {
       throw new Error(`Niet genoeg voorraad voor ${variant.merk} ${variant.smaak}.`);
     }
   }
@@ -183,6 +188,7 @@ async function createSaleFromInput(
       // stempelkaart op elke verkoop kan sparen — niet alleen bij pof.
       klantNaam: input.klantNaam ?? null,
       gratis,
+      voorraadGeboekt: affectStock,
       datum: input.datum
     }
   });
@@ -204,18 +210,22 @@ async function createSaleFromInput(
         bedrag: decimal(aandeel)
       }
     });
-    await tx.variant.update({
-      where: { id: item.variantId },
-      data: {
-        voorraad: { decrement: item.aantal },
-        ...(trackPerformance
-          ? {
-              totaalVerkocht: { increment: item.aantal },
-              totaalOmzet: { increment: decimal(aandeel) }
-            }
-          : {})
-      }
-    });
+    // Bij een directe/voorverkochte doorverkoop (affectStock=false) blijft de
+    // voorraad ongemoeid; alleen de omschrijving wordt bewaard.
+    if (affectStock) {
+      await tx.variant.update({
+        where: { id: item.variantId },
+        data: {
+          voorraad: { decrement: item.aantal },
+          ...(trackPerformance
+            ? {
+                totaalVerkocht: { increment: item.aantal },
+                totaalOmzet: { increment: decimal(aandeel) }
+              }
+            : {})
+        }
+      });
+    }
   }
 
   // Alleen het pof-deel komt als openstaand bedrag op de poflijst.
@@ -239,18 +249,17 @@ async function reverseAndDeleteSale(tx: Prisma.TransactionClient, id: string) {
   const trackPerformance = sale.kind !== SaleKind.DEAL;
 
   for (const item of sale.items) {
-    await tx.variant.update({
-      where: { id: item.variantId },
-      data: {
-        voorraad: { increment: item.aantal },
-        ...(trackPerformance
-          ? {
-              totaalVerkocht: { decrement: item.aantal },
-              totaalOmzet: { decrement: item.bedrag }
-            }
-          : {})
-      }
-    });
+    const data: Prisma.VariantUpdateInput = {};
+    // Alleen terugboeken wat er ooit is afgeboekt: een directe doorverkoop
+    // (voorraadGeboekt=false) heeft de voorraad nooit geraakt.
+    if (sale.voorraadGeboekt) data.voorraad = { increment: item.aantal };
+    if (trackPerformance) {
+      data.totaalVerkocht = { decrement: item.aantal };
+      data.totaalOmzet = { decrement: item.bedrag };
+    }
+    if (Object.keys(data).length > 0) {
+      await tx.variant.update({ where: { id: item.variantId }, data });
+    }
   }
 
   if (sale.debt) await tx.debt.delete({ where: { id: sale.debt.id } });
@@ -388,6 +397,10 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
     const verkoop = parse(dealRowsSchema, String(formData.get("verkoop") || "[]"));
     const inkoop = parse(dealInkoopRowsSchema, String(formData.get("inkoop") || "[]"));
     if (verkoop.length === 0) throw new Error("Voeg minstens één smaak toe die de klant krijgt.");
+    // Direct/voorverkocht: geen eigen voorraad gebruikt. De verkoop boekt geen
+    // voorraad af en er wordt niets bijbesteld; alleen omzet en inkoopkosten
+    // (voor de winst) worden vastgelegd.
+    const uitVoorraad = String(formData.get("modus") || "voorraad") !== "direct";
 
     const bedrag = round2(Number(String(formData.get("bedrag") || "0").replace(",", ".")));
     if (!(bedrag > 0)) throw new Error("Vul een geldige doorverkoopprijs in.");
@@ -407,7 +420,8 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
         const perStuk = row.prijsPerRol != null ? row.prijsPerRol / BAKJES_PER_ROL : Number(variant.inkoopPrijs);
         dealInkoopBedrag += row.rollen * BAKJES_PER_ROL * perStuk;
       }
-      // 1) Klant krijgt — verkoop uit eigen voorraad tegen de doorverkoopprijs (voorraad omlaag).
+      // 1) Klant krijgt — verkoop tegen de doorverkoopprijs. Uit eigen voorraad
+      // (voorraad omlaag) óf direct/voorverkocht (voorraad blijft ongemoeid).
       await createSaleFromInput(tx, {
         kind: SaleKind.DEAL,
         items: verkoop.map((row) => ({ variantId: row.variantId, aantal: row.rollen * BAKJES_PER_ROL })),
@@ -417,12 +431,14 @@ export async function addDeal(_prev: ActionState, formData: FormData): Promise<A
         betaalwijze,
         klantNaam,
         datum,
-        trackPerformance: false
+        trackPerformance: false,
+        affectStock: uitVoorraad
       });
 
       // 2) Ik bestel — bijbestelling tegen de al bekende inkoopprijs (voorraad omhoog).
-      // We hergebruiken de huidige gemiddelde inkoopprijs, zodat het gemiddelde niet
-      // verschuift (auto-modus); de smaak hoeft niet gelijk te zijn aan wat de klant kreeg.
+      // Alleen bij een deal uit eigen voorraad; bij direct/voorverkocht wordt er
+      // niets bijbesteld (de inkoopkosten tellen alleen mee voor de winst hierboven).
+      if (!uitVoorraad) return;
       for (const row of inkoop) {
         const variant = await tx.variant.findUnique({ where: { id: row.variantId } });
         if (!variant) throw new Error("Variant bestaat niet.");
