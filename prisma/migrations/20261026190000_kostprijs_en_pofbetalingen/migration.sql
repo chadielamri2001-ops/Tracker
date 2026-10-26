@@ -54,3 +54,7 @@ WHERE (d."betaald" OR d."afbetaald" > 0)
 
 -- Betaalde posten kloppend maken: afbetaald = bedrag.
 UPDATE "Debt" SET "afbetaald" = "bedrag" WHERE "betaald" AND "afbetaald" <> "bedrag";
+
+-- Net als de andere tabellen: RLS aan zonder policies. De app verbindt als
+-- eigenaar en wordt niet geraakt; de publieke Supabase Data API kan er niet bij.
+ALTER TABLE "DebtPayment" ENABLE ROW LEVEL SECURITY;
