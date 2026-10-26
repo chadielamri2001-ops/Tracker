@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clearanceSuggestions, forecastRows, loyaltyCards, weekdayStats } from "./insights";
+import { clearanceSuggestions, forecastRows, loyaltyCards } from "./insights";
+import { emptyBucket, weekdayAverages } from "./stats";
 import type { TrackerData } from "./validators";
 
 type Sale = TrackerData["sales"][number];
@@ -20,22 +21,17 @@ function sale(over: Partial<Sale>): Partial<Sale> {
   return { datum: "2024-01-05", bedrag: 0, gratis: false, klantNaam: null, items: [], ...over };
 }
 
-describe("weekdayStats", () => {
-  it("telt omzet per weekdag en rekent het gemiddelde over voorkomende dagen", () => {
-    const data = mkData({
-      sales: [
-        sale({ datum: "2024-01-05", bedrag: 100 }), // vrijdag
-        sale({ datum: "2024-01-12", bedrag: 50 }), // vrijdag (andere dag)
-        sale({ datum: "2024-01-08", bedrag: 30 }) // maandag
-      ]
-    });
-    const rows = weekdayStats(data);
+describe("weekdayAverages", () => {
+  it("rekent het gemiddelde over álle keren dat de weekdag voorkwam, ook zonder verkoop", () => {
+    const day = (date: string, omzet: number) => ({ ...emptyBucket(date), omzet, transacties: omzet > 0 ? 1 : 0 });
+    // vr 5 jan: 100, ma 8 jan: 30, vr 12 jan: 50, ma 15 jan: niets verkocht
+    const rows = weekdayAverages([day("2024-01-05", 100), day("2024-01-08", 30), day("2024-01-12", 50)], new Date(2024, 0, 15));
     const vrijdag = rows.find((r) => r.name === "Vrijdag")!;
     const maandag = rows.find((r) => r.name === "Maandag")!;
-    expect(vrijdag.omzet).toBe(150);
-    expect(vrijdag.gemiddeld).toBe(75); // 150 over 2 vrijdagen
-    expect(maandag.omzet).toBe(30);
-    expect(maandag.gemiddeld).toBe(30);
+    expect(vrijdag.totaal).toBe(150);
+    expect(vrijdag.gemiddeld).toBe(75); // 2 vrijdagen
+    expect(maandag.dagen).toBe(2); // 8 en 15 jan
+    expect(maandag.gemiddeld).toBe(15); // 30 over 2 maandagen, de lege telt mee
   });
 });
 

@@ -191,7 +191,9 @@ export const trackerDataSchema = z.object({
           merk: z.string(),
           smaak: z.string(),
           aantal: z.number(),
-          bedrag: z.number()
+          bedrag: z.number(),
+          // Inkoopprijs per stuk zoals vastgelegd bij de verkoop.
+          inkoopPrijs: z.number().optional()
         })
       )
     })
