@@ -5,7 +5,31 @@ import { signOut } from "next-auth/react";
 import { Fragment, useActionState, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { TrackerData } from "@/lib/validators";
-import type { AnalyticsSummary, DayBucket } from "@/server/analytics";
+import type { AnalyticsSummary } from "@/server/analytics";
+import {
+  ADMIN_ANCHOR,
+  addDays,
+  buildPeriods,
+  compareWithPrevious,
+  dayDiff,
+  derive,
+  moneyAverages,
+  moneyByMonth,
+  normalizeDate,
+  parseYmd,
+  pctChange,
+  periodContaining,
+  periodLabel,
+  previousPeriod,
+  sumRange,
+  weekdayAverages,
+  ymd,
+  type DayBucket,
+  type PeriodKind,
+  type PeriodRow,
+  type Range,
+  type Totals
+} from "@/lib/stats";
 import { euro } from "@/lib/money";
 import {
   IconAlert,
@@ -51,16 +75,13 @@ import { AiAssistant } from "./ai-assistant";
 import {
   clearanceSuggestions,
   dailySeries,
-  distinctSalesDays,
   forecastRows,
   isRegularSale,
+  itemCost,
   loyaltyCards,
   restockSuggestions,
-  salesForecast,
   STAMPS_PER_REWARD,
   variantVelocity,
-  weekdayStats,
-  type DayPoint,
   type SeriesMetric
 } from "@/lib/insights";
 
@@ -110,20 +131,15 @@ type OverviewPeriod = "vandaag" | "week" | "maand" | "alles";
 type OverviewSection = "dashboard" | "recent" | "producten";
 type SaleSection = "nieuw" | "doorverkoop" | "weggeven" | "concepten" | "historie";
 type DebtSection = "personen" | "posten" | "stempelkaarten" | "toevoegen";
-type StatsPeriod = "dag" | "week" | "maand" | "4weken";
 type ThemeMode = "light" | "dark";
 type DraftItem = { variantId: string; aantal: number };
 type PurchaseDraft = { productType: ProductType; merk: string; smaak: string; rollen: number; losse: number; prijsPerRol: string; stuks: number; prijsPerStuk: string };
 type SaleRecord = TrackerData["sales"][number];
-type StatsGroup = { label: string; sort: number; omzet: number; winst: number; stuks: number; transacties: number };
 type TrendTone = "up" | "down" | "stable";
 
 const DELIVERY_PRICE = 5;
 const BAKJES_PER_ROL = 10;
 const VAPE_PRICES: Record<number, number> = { 1: 15, 2: 30, 3: 40 };
-const ADMIN_ANCHOR = new Date(2026, 3, 17);
-const ALL_TIME_START = ADMIN_ANCHOR;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FIXED_BRANDS = ["Iceberg", "Velo", "Pablo", "Killa", "Cuba", "Fox"];
 const FIXED_VAPE_BRANDS = ["Vape"];
 const FIXED_FLAVORS: Record<string, string[]> = {
@@ -193,88 +209,16 @@ function dateKey(value: Date) {
   return new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(value);
 }
 
-function normalizeDate(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-}
 
-function addDays(value: Date, days: number) {
-  const next = normalizeDate(value);
-  next.setDate(next.getDate() + days);
-  return next;
-}
 
-function calendarDayDiff(a: Date, b: Date) {
-  return Math.round(
-    (Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) - Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())) /
-      DAY_MS
-  );
-}
 
 function adminDate(value: Date, includeYear = false) {
   return value.toLocaleDateString("nl-NL", includeYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
 }
 
-function getAdministrativePeriod(value: Date) {
-  const date = normalizeDate(value);
-  const diff = calendarDayDiff(date, ADMIN_ANCHOR);
-  if (diff < 0) return null;
-  const periodIndex = Math.floor(diff / 7);
-  const start = addDays(ADMIN_ANCHOR, periodIndex * 7);
-  const end = addDays(start, 6);
-  const endExclusive = addDays(start, 7);
-  return {
-    periodIndex,
-    weekNumber: periodIndex + 1,
-    start,
-    end,
-    endExclusive,
-    label: `Periode ${periodIndex + 1} - ${adminDate(start)} t/m ${adminDate(end, true)}`
-  };
-}
 
-function getPeriodBounds(period: OverviewPeriod, now = new Date()) {
-  const today = normalizeDate(now);
-  if (period === "vandaag") return { start: today, end: addDays(today, 1), label: "vandaag" };
-  if (period === "week") {
-    const admin = getAdministrativePeriod(today);
-    return admin ? { start: admin.start, end: admin.endExclusive, label: admin.label } : null;
-  }
-  if (period === "maand") {
-    return {
-      start: new Date(today.getFullYear(), today.getMonth(), 1),
-      end: new Date(today.getFullYear(), today.getMonth() + 1, 1),
-      label: "deze maand"
-    };
-  }
-  return { start: ALL_TIME_START, end: addDays(today, 1), label: "vanaf 17 april 2026" };
-}
 
-function getPreviousBounds(period: OverviewPeriod, now = new Date()) {
-  const today = normalizeDate(now);
-  if (period === "vandaag") return { start: addDays(today, -1), end: today, label: "gisteren" };
-  if (period === "week") {
-    const current = getAdministrativePeriod(today);
-    if (!current) return null;
-    const start = addDays(current.start, -7);
-    const end = current.start;
-    const previous = getAdministrativePeriod(start);
-    return { start, end, label: previous?.label || "vorige periode" };
-  }
-  if (period === "maand") {
-    return {
-      start: new Date(today.getFullYear(), today.getMonth() - 1, 1),
-      end: new Date(today.getFullYear(), today.getMonth(), 1),
-      label: "vorige maand"
-    };
-  }
-  return null;
-}
 
-function adminPeriodAtOffset(offset: number, now = new Date()) {
-  const current = getAdministrativePeriod(normalizeDate(now));
-  if (!current) return null;
-  return getAdministrativePeriod(addDays(current.start, offset * 7));
-}
 
 function paymentLabel(value: PaymentMethod) {
   return value === PaymentMethod.CASH ? "Cash" : value === PaymentMethod.TIKKIE ? "Tikkie" : "Pof";
@@ -431,32 +375,8 @@ function stockDaysInfo(voorraad: number, perDay: number): { text: string; classN
   return { text: `~${Math.round(daysLeft)} dgn`, className: "muted", title };
 }
 
-function statsPeriodLabel(period: StatsPeriod) {
-  if (period === "dag") return "dag";
-  if (period === "week") return "administratieve periode";
-  if (period === "maand") return "maand";
-  return "4-weken periode";
-}
 
-function statsPeriodKey(date: Date, period: StatsPeriod, firstSale: Date | null) {
-  if (period === "dag") return dateKey(date);
-  if (period === "maand") return date.toLocaleString("nl-NL", { month: "long", year: "numeric" });
-  if (period === "week") return getAdministrativePeriod(date)?.label || "Voor start administratie";
-  if (!firstSale) return dateKey(date);
-  const index = Math.floor(calendarDayDiff(date, firstSale) / 28);
-  const start = addDays(firstSale, index * 28);
-  const end = addDays(start, 27);
-  return `Periode ${index + 1}: ${adminDate(start)} t/m ${adminDate(end)}`;
-}
 
-function statsPeriodSort(date: Date, period: StatsPeriod, firstSale: Date | null) {
-  if (period === "dag") return normalizeDate(date).getTime();
-  if (period === "maand") return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
-  if (period === "week") return getAdministrativePeriod(date)?.start.getTime() || 0;
-  if (!firstSale) return normalizeDate(date).getTime();
-  const index = Math.floor(calendarDayDiff(date, firstSale) / 28);
-  return addDays(firstSale, index * 28).getTime();
-}
 
 function sellableVariants(data: TrackerData) {
   return data.variants.filter((variant) => !isImportBucket(variant.merk));
@@ -513,7 +433,7 @@ function debtOpen(debt: TrackerData["debts"][number]) {
 }
 
 function debtAgeDays(debt: TrackerData["debts"][number]) {
-  return Math.max(0, calendarDayDiff(normalizeDate(new Date()), normalizeDate(new Date(debt.datum))));
+  return Math.max(0, dayDiff(normalizeDate(new Date()), normalizeDate(new Date(debt.datum))));
 }
 
 function debtAgeLabel(debt: TrackerData["debts"][number]) {
@@ -523,21 +443,6 @@ function debtAgeLabel(debt: TrackerData["debts"][number]) {
   return `${days} dagen open`;
 }
 
-function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
-  return data.sales.filter((sale) => isRegularSale(sale) && (predicate ? predicate(sale) : true)).reduce(
-    (stats, sale) => {
-      stats.omzet += sale.bedrag;
-      stats.transacties += 1;
-      for (const item of sale.items) {
-        const variant = data.variants.find((v) => v.id === item.variantId);
-        stats.stuks += item.aantal;
-        stats.winst += item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
-      }
-      return stats;
-    },
-    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
-  );
-}
 
 function saleItemCost(data: TrackerData, sale: SaleRecord) {
   return sale.items.reduce((sum, item) => {
@@ -566,43 +471,10 @@ function dealStats(data: TrackerData, predicate?: (sale: SaleRecord) => boolean)
     );
 }
 
-function ymd(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
-function parseYmd(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
 
-function sumDays(days: DayBucket[], bounds: { start: Date; end: Date } | null) {
-  const start = bounds ? ymd(bounds.start) : null;
-  const end = bounds ? ymd(bounds.end) : null;
-  return days.reduce(
-    (acc, day) => {
-      if (start && end && !(day.date >= start && day.date < end)) return acc;
-      acc.omzet += day.omzet;
-      acc.winst += day.winst;
-      acc.stuks += day.stuks;
-      acc.transacties += day.transacties;
-      return acc;
-    },
-    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
-  );
-}
 
-function saleInBounds(sale: TrackerData["sales"][number], bounds: { start: Date; end: Date } | null) {
-  if (!bounds) return true;
-  const date = normalizeDate(new Date(sale.datum));
-  return date >= bounds.start && date < bounds.end;
-}
 
-function periodLabel(period: OverviewPeriod) {
-  return period === "vandaag" ? "vandaag" : period === "week" ? "deze periode" : period === "maand" ? "deze maand" : "alle tijd";
-}
 
 function preferredTheme(): ThemeMode {
   const saved = window.localStorage.getItem("snus_theme");
@@ -844,16 +716,6 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
   const [themeReady, setThemeReady] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
-  const metrics = useMemo(() => {
-    const omzet = data.sales.reduce((sum, sale) => sum + sale.bedrag, 0);
-    const inkoopWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
-    const stuks = data.sales.reduce((sum, sale) => sum + sale.items.reduce((a, item) => a + item.aantal, 0), 0);
-    const winst = data.variants.reduce(
-      (sum, variant) => sum + variant.totaalOmzet - variant.totaalVerkocht * variant.inkoopPrijs,
-      0
-    );
-    return { omzet, inkoopWaarde, stuks, winst, voorraad: data.variants.reduce((sum, v) => sum + v.voorraad, 0) };
-  }, [data]);
 
   function toggleTheme() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
@@ -947,7 +809,7 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
       </header>
 
       <main className="shell">
-        {tab === "overzicht" ? <Overview data={data} metrics={metrics} analytics={analytics} onNavigate={navigate} /> : null}
+        {tab === "overzicht" ? <Overview data={data} analytics={analytics} onNavigate={navigate} /> : null}
         {tab === "inkoop" ? <PurchaseView data={data} /> : null}
         {tab === "verkoop" ? <SalesView data={data} /> : null}
         {tab === "voorraad" ? <StockView data={data} /> : null}
@@ -977,51 +839,53 @@ export function TrackerApp({ data, analytics, userEmail }: { data: TrackerData; 
   );
 }
 
-function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData; metrics: Record<string, number>; analytics: AnalyticsSummary; onNavigate: (tab: Tab) => void }) {
-  const [period, setPeriod] = useState<OverviewPeriod>("alles");
-  const [section, setSection] = useState<OverviewSection>("dashboard");
-  const [weekOffset, setWeekOffset] = useState(0);
-  const latestPeriodOffset = useMemo(() => {
-    for (let offset = 0; offset >= -52; offset--) {
-      const adminPeriod = adminPeriodAtOffset(offset);
-      if (!adminPeriod) break;
-      const hasSales = data.sales.some((sale) => {
-        if (!isRegularSale(sale)) return false;
-        const date = normalizeDate(new Date(sale.datum));
-        return date >= adminPeriod.start && date < adminPeriod.endExclusive;
-      });
-      if (hasSales) return offset;
-    }
-    return 0;
-  }, [data]);
+function overviewKind(period: OverviewPeriod): PeriodKind | null {
+  return period === "vandaag" ? "dag" : period === "week" ? "week" : period === "maand" ? "maand" : null;
+}
 
-  const adminPeriod = period === "week" ? adminPeriodAtOffset(weekOffset) : null;
-  const prevAdminPeriod = period === "week" ? adminPeriodAtOffset(weekOffset - 1) : null;
-  const bounds =
-    period === "week"
-      ? adminPeriod
-        ? { start: adminPeriod.start, end: adminPeriod.endExclusive, label: adminPeriod.label }
-        : null
-      : getPeriodBounds(period);
-  const previousBounds =
-    period === "week"
-      ? prevAdminPeriod
-        ? { start: prevAdminPeriod.start, end: prevAdminPeriod.endExclusive, label: prevAdminPeriod.label }
-        : null
-      : getPreviousBounds(period);
-  const filteredStats = sumDays(analytics.days, bounds);
-  const margin = filteredStats.omzet > 0 ? (filteredStats.winst / filteredStats.omzet) * 100 : 0;
-  const previousStats = previousBounds ? sumDays(analytics.days, previousBounds) : null;
+// Schuift een periode `offset` stappen terug (negatief) of vooruit.
+function stepPeriod(kind: PeriodKind, range: Range, offset: number): Range {
+  let current = range;
+  for (let i = 0; i < Math.abs(offset); i++) {
+    current = offset < 0 ? previousPeriod(kind, current) : periodContaining(kind, current.end);
+  }
+  return current;
+}
+
+function Overview({ data, analytics, onNavigate }: { data: TrackerData; analytics: AnalyticsSummary; onNavigate: (tab: Tab) => void }) {
+  const [period, setPeriod] = useState<OverviewPeriod>("maand");
+  const [section, setSection] = useState<OverviewSection>("dashboard");
+  const [offset, setOffset] = useState(0);
+  const today = normalizeDate(new Date());
+  const firstDay = analytics.days.length ? parseYmd(analytics.days[0].date) : ADMIN_ANCHOR;
+  const kind = overviewKind(period);
+  const range: Range = kind ? stepPeriod(kind, periodContaining(kind, today), offset) : { start: firstDay, end: addDays(today, 1) };
+  const canGoBack = kind ? previousPeriod(kind, range).end > firstDay : false;
+  const totals = kind ? sumRange(analytics.days, range.start, range.end) : analytics.allTime;
+  const d = derive(totals);
+  const cmp = kind ? compareWithPrevious(analytics.days, kind, range, today) : null;
+  // Vandaag (nog bezig) tegen heel gisteren afzetten zegt niets — dan geen vergelijking.
+  const showCompare = cmp && !(kind === "dag" && cmp.lopend) && previousPeriod(kind!, range).start >= firstDay;
+  const cur = cmp ? derive(cmp.current) : null;
+  const prev = cmp ? derive(cmp.previous) : null;
+  const vs = (value: string) => (showCompare && cmp ? `vs ${value} ${cmp.previousLabel}` : undefined);
+  const join = (...parts: Array<string | undefined | false | null>) => parts.filter(Boolean).join(" · ") || undefined;
+
+  const title =
+    period === "alles"
+      ? "Alle tijd"
+      : kind === "dag" && offset === 0
+        ? "Vandaag"
+        : periodLabel(kind!, range);
+  const voorraadStuks = data.variants.reduce((sum, variant) => sum + variant.voorraad, 0);
   const voorraadWaarde = data.variants.reduce((sum, variant) => sum + variant.voorraad * variant.inkoopPrijs, 0);
   const openDebts = data.debts.filter((debt) => !debt.betaald);
   const openPof = openDebts.reduce((sum, debt) => sum + debtOpen(debt), 0);
   const openPofPeople = new Set(openDebts.map((debt) => debt.naam)).size;
-  const periodTitle = period === "week" && adminPeriod ? `periode ${adminPeriod.weekNumber}` : periodLabel(period);
-  const periodSub = period === "alles" ? "vanaf 17 april 2026" : undefined;
 
   function selectPeriod(value: OverviewPeriod) {
     setPeriod(value);
-    if (value === "week") setWeekOffset(latestPeriodOffset);
+    setOffset(0);
   }
 
   return (
@@ -1030,9 +894,9 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
         <h1>Overzicht</h1>
         <div className="segmented">
           {([
-            ["vandaag", "Vandaag"],
-            ["week", "Deze periode"],
-            ["maand", "Deze maand"],
+            ["vandaag", "Dag"],
+            ["week", "Week"],
+            ["maand", "Maand"],
             ["alles", "Alle tijd"]
           ] as Array<[OverviewPeriod, string]>).map(([value, label]) => (
             <button className={period === value ? "active" : ""} key={value} onClick={() => selectPeriod(value)} type="button">
@@ -1041,48 +905,54 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
           ))}
         </div>
       </div>
-      {period === "week" && adminPeriod ? (
+      {kind ? (
         <div className="period-nav">
-          <button type="button" onClick={() => setWeekOffset((offset) => offset - 1)} disabled={!adminPeriodAtOffset(weekOffset - 1)} aria-label="Vorige periode">
+          <button type="button" onClick={() => setOffset((value) => value - 1)} disabled={!canGoBack} aria-label="Vorige periode">
             <IconChevronLeft size={18} />
           </button>
           <span>
-            {adminPeriod.label}
-            {weekOffset === 0 ? <span className="now-tag"> - nu</span> : null}
+            {title}
+            {offset === 0 ? <span className="now-tag"> · nu</span> : null}
           </span>
-          <button type="button" onClick={() => setWeekOffset((offset) => Math.min(0, offset + 1))} disabled={weekOffset >= 0} aria-label="Volgende periode">
+          <button type="button" onClick={() => setOffset((value) => Math.min(0, value + 1))} disabled={offset >= 0} aria-label="Volgende periode">
             <IconChevronRight size={18} />
           </button>
         </div>
       ) : null}
       <div className="metric-grid kpis">
         <Metric
-          label={`Omzet (${periodTitle})`}
-          value={euro(filteredStats.omzet)}
-          delta={previousStats ? { current: filteredStats.omzet, previous: previousStats.omzet } : undefined}
-          sub={previousStats && previousBounds ? `vs ${euro(previousStats.omzet)} ${previousBounds.label}` : periodSub}
+          label="Omzet"
+          value={euro(d.omzetTotaal)}
+          delta={showCompare && cur && prev ? { current: cur.omzetTotaal, previous: prev.omzetTotaal } : undefined}
+          sub={join(prev && vs(euro(prev.omzetTotaal)), totals.dealOmzet > 0 && `incl. ${euro(totals.dealOmzet)} doorverkoop`, !kind && `sinds ${adminDate(firstDay, true)}`)}
         />
         <Metric
-          label={`Winst (${periodTitle})`}
-          value={euro(filteredStats.winst)}
-          tone={filteredStats.winst >= 0 ? "good" : "bad"}
-          delta={previousStats ? { current: filteredStats.winst, previous: previousStats.winst } : undefined}
-          sub={previousStats && previousBounds ? `vs ${euro(previousStats.winst)} ${previousBounds.label}` : periodSub}
+          label="Winst"
+          value={euro(d.winstTotaal)}
+          tone={d.winstTotaal >= 0 ? "good" : "bad"}
+          delta={showCompare && cur && prev ? { current: cur.winstTotaal, previous: prev.winstTotaal } : undefined}
+          sub={join(prev && vs(euro(prev.winstTotaal)), totals.dealWinst !== 0 && `incl. ${euro(totals.dealWinst)} doorverkoop`)}
         />
-        <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
+        <Metric label="Marge" value={`${d.marge.toFixed(1)}%`} tone={d.marge >= 0 ? "good" : "bad"} />
         <Metric
-          label="Stuks verkocht"
-          value={String(filteredStats.stuks)}
-          delta={previousStats ? { current: filteredStats.stuks, previous: previousStats.stuks } : undefined}
-          sub={previousStats && previousBounds ? `vs ${previousStats.stuks} ${previousBounds.label}` : undefined}
+          label="Geld binnen"
+          value={euro(d.ontvangen)}
+          delta={showCompare && cur && prev ? { current: cur.ontvangen, previous: prev.ontvangen } : undefined}
+          sub={`${euro(totals.opPof)} op pof · ${euro(totals.terugbetaald)} terug`}
         />
-        <Metric label="Voorraad (stuks)" value={String(metrics.voorraad)} sub={`${euro(voorraadWaarde)} inkoop`} />
+        <Metric
+          label="Bakjes verkocht"
+          value={String(totals.stuks)}
+          delta={showCompare && cmp ? { current: cmp.current.stuks, previous: cmp.previous.stuks } : undefined}
+          sub={join(cmp && vs(String(cmp.previous.stuks)), totals.gratisStuks > 0 && `${totals.gratisStuks} weggegeven`)}
+        />
         <Metric
           label="Openstaande pof"
           value={euro(openPof)}
           tone={openPof > 0 ? "bad" : "good"}
-          sub={openPofPeople ? `${openPofPeople} ${openPofPeople === 1 ? "persoon" : "personen"}` : "niemand open"}
+          sub={openPofPeople ? `nu · ${openPofPeople} ${openPofPeople === 1 ? "persoon" : "personen"}` : "niemand open"}
         />
+        <Metric label="Voorraad" value={`${voorraadStuks} st`} sub={`${euro(voorraadWaarde)} inkoopwaarde`} />
       </div>
       <div className="quick-actions">
         <button type="button" className="qa-primary" onClick={() => onNavigate("verkoop")}>
@@ -1110,20 +980,19 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
       {section === "dashboard" ? (
         <>
           <AiAssistant />
-          {/* Groei blijft ook op mobiel; de diepe panelen (mobile-hide) alleen op desktop/Statistieken. */}
           <div className="dashboard-grid">
             <div className="dashboard-main">
-              <BusinessPulse data={data} />
+              <MoneyPanel days={analytics.days} totals={totals} title={title} />
+              <GrowthForecastPanel data={data} />
               <div className="mobile-hide"><TrendChart data={data} /></div>
-              <div className="mobile-hide"><ForecastPanel data={data} /></div>
             </div>
             <div className="dashboard-side mobile-hide">
               <Insights data={data} />
-              <WeekdayPanel data={data} />
+              <WeekdayPanel days={analytics.days} />
               <ClearancePanel data={data} />
             </div>
           </div>
-          <div className="mobile-hide"><TopFlop analytics={analytics} period={period} /></div>
+          <div className="mobile-hide"><TopFlop days={analytics.days} range={range} title={title} /></div>
           <button type="button" className="mobile-stats-link" onClick={() => onNavigate("statistieken")}>
             <span><IconChart size={18} /> Diepe cijfers &amp; grafieken</span>
             <span className="muted">Statistieken <IconChevronRight size={16} /></span>
@@ -1133,23 +1002,73 @@ function Overview({ data, metrics, analytics, onNavigate }: { data: TrackerData;
       {section === "recent" ? <RecentSalesPreview sales={data.sales.slice(0, 30)} /> : null}
       {section === "producten" ? (
         <Panel title="Prestaties per merk / smaak">
+          <p className="muted forecast-note">Hele historie, gewone verkoop. Winst met de inkoopprijs op het moment van verkoop.</p>
           <DataTable
-            headers={["Product", "Merk", "Smaak / model", "Inkoop", "Verkocht", "Omzet", "Winst", "Voorraad"]}
+            headers={["Product", "Merk", "Smaak / model", "Inkoop nu", "Verkocht", "Omzet", "Winst", "Voorraad"]}
             align={[false, false, false, true, true, true, true, true]}
-            rows={data.variants.map((variant) => [
-              productTypeLabel(variant.productType),
-              variant.merk,
-              variant.smaak,
-              `${euro(variant.inkoopPrijs)}/st`,
-              String(variant.totaalVerkocht),
-              euro(variant.totaalOmzet),
-              euro(variant.totaalOmzet - variant.totaalVerkocht * variant.inkoopPrijs),
-              String(variant.voorraad)
-            ])}
+            rows={data.variants.map((variant) => {
+              const stat = analytics.variantStats[variant.id];
+              return [
+                productTypeLabel(variant.productType),
+                variant.merk,
+                variant.smaak,
+                `${euro(variant.inkoopPrijs)}/st`,
+                String(stat?.stuks ?? 0),
+                euro(stat?.omzet ?? 0),
+                euro(stat?.winst ?? 0),
+                String(variant.voorraad)
+              ];
+            })}
           />
         </Panel>
       ) : null}
     </section>
+  );
+}
+
+// Wat er écht binnenkwam: omzet min wat op de pof ging, plus pof die terugkwam.
+function MoneyPanel({ days, totals, title }: { days: DayBucket[]; totals: Totals; title: string }) {
+  const d = derive(totals);
+  const avg = useMemo(() => moneyAverages(moneyByMonth(days)), [days]);
+  return (
+    <Panel title={`Geld binnen · ${title}`}>
+      <div className="insight-stats money-flow">
+        <div className="insight-stat">
+          <span className="lbl">Omzet</span>
+          <span className="val"><strong>{euro(d.omzetTotaal)}</strong></span>
+        </div>
+        <div className="insight-stat">
+          <span className="lbl">− Op de pof gezet</span>
+          <span className="val"><strong className={totals.opPof > 0 ? "red" : ""}>{euro(totals.opPof)}</strong><small>{d.pofPct.toFixed(0)}% van de omzet</small></span>
+        </div>
+        <div className="insight-stat">
+          <span className="lbl">+ Pof terugbetaald</span>
+          <span className="val"><strong className={totals.terugbetaald > 0 ? "green" : ""}>{euro(totals.terugbetaald)}</strong><small>ook van oudere posten</small></span>
+        </div>
+        <div className="insight-stat money-total">
+          <span className="lbl">= Geld binnen</span>
+          <span className="val"><strong>{euro(d.ontvangen)}</strong><small>{euro(totals.cash)} cash · {euro(totals.tikkie)} Tikkie · {euro(totals.terugbetaald)} pof</small></span>
+        </div>
+      </div>
+      {totals.terugbetaaldGeschat > 0 ? (
+        <p className="muted forecast-note">Van {euro(totals.terugbetaaldGeschat)} aan terugbetalingen is de datum geschat: oude deelbetalingen, van vóór deze update.</p>
+      ) : null}
+      {avg ? (
+        <>
+          <p className="section-eyebrow">
+            Gemiddeld per maand{avg.alleenLopend ? " (nog geen volledige maand)" : ` · over ${avg.maanden} volledige ${avg.maanden === 1 ? "maand" : "maanden"}`}
+          </p>
+          <div className="insight-stats">
+            <div className="insight-stat"><span className="lbl">Omzet</span><span className="val"><strong>{euro(avg.omzet)}</strong></span></div>
+            <div className="insight-stat"><span className="lbl">Op de pof</span><span className="val"><strong>{euro(avg.opPof)}</strong><small>{avg.pofPct.toFixed(0)}% van de omzet</small></span></div>
+            <div className="insight-stat"><span className="lbl">Pof terugbetaald</span><span className="val"><strong>{euro(avg.terugbetaald)}</strong></span></div>
+            <div className="insight-stat money-total"><span className="lbl">Geld binnen</span><span className="val"><strong>{euro(avg.ontvangen)}</strong><small>{avg.opPof > avg.terugbetaald
+                    ? `pof groeit gemiddeld ${euro(avg.opPof - avg.terugbetaald)} per maand`
+                    : "er komt evenveel of meer pof terug dan erbij gaat"}</small></span></div>
+          </div>
+        </>
+      ) : null}
+    </Panel>
   );
 }
 
@@ -1178,14 +1097,43 @@ function ClearancePanel({ data }: { data: TrackerData }) {
   );
 }
 
-function ForecastPanel({ data }: { data: TrackerData }) {
+
+// Groei (laatste 7 dagen vs de 7 ervoor) en prognose in één paneel.
+function GrowthForecastPanel({ data }: { data: TrackerData }) {
   const [metric, setMetric] = useState<SeriesMetric>("omzet");
-  const rows = useMemo(() => forecastRows(data, metric), [data, metric]);
-  if (data.sales.length === 0) return null;
+  const series = useMemo(() => dailySeries(data, 14), [data]);
+  const rows = useMemo(() => forecastRows(data, metric).filter((row) => row.label !== "Week"), [data, metric]);
+  if (!data.sales.some(isRegularSale)) return null;
+  const sum = (days: typeof series) =>
+    days.reduce(
+      (acc, day) => ({ omzet: acc.omzet + day.omzet, stuks: acc.stuks + day.stuks, dagen: acc.dagen + (day.stuks > 0 ? 1 : 0) }),
+      { omzet: 0, stuks: 0, dagen: 0 }
+    );
+  const previous = sum(series.slice(0, 7));
+  const current = sum(series.slice(7));
+  const pct = pctChange(current.omzet, previous.omzet);
+  const state = pct === null ? "up" : Math.abs(pct) < 5 ? "stable" : pct > 0 ? "up" : "down";
+  const label = state === "up" ? "Groei" : state === "down" ? "Daling" : "Stabiel";
   const labels = { omzet: "Omzet", winst: "Winst", stuks: "Stuks" } as const;
   const fmt = (value: number) => (metric === "stuks" ? `${Math.round(value)}` : euro(value));
+
   return (
-    <Panel title="Prognose & trend">
+    <Panel title="Groei & prognose">
+      <div className={`pulse-card ${state}`}>
+        <div>
+          <span className="pulse-label">{label}</span>
+          <strong>{pctText(pct)}</strong>
+          <p>Laatste 7 dagen tegenover de 7 dagen daarvoor (gewone verkoop).</p>
+        </div>
+        <div className="pulse-grid">
+          <span><small>Laatste 7 dagen</small><strong>{euro(current.omzet)}</strong></span>
+          <span><small>7 dagen ervoor</small><strong>{euro(previous.omzet)}</strong></span>
+          <span><small>Stuks</small><strong>{current.stuks} vs {previous.stuks}</strong></span>
+          <span><small>Verkoopdagen</small><strong>{current.dagen} vs {previous.dagen}</strong></span>
+        </div>
+      </div>
+      {/* Prognosetabel alleen op desktop; op mobiel blijft de groei-indicatie staan. */}
+      <div className="mobile-hide">
       <div className="segmented chart-toggle">
         {(["omzet", "winst", "stuks"] as const).map((key) => (
           <button key={key} type="button" className={metric === key ? "active" : ""} onClick={() => setMetric(key)}>
@@ -1193,13 +1141,17 @@ function ForecastPanel({ data }: { data: TrackerData }) {
           </button>
         ))}
       </div>
-      <p className="muted forecast-note">Verwachting op het tempo van de laatste 4 weken; trend = afgelopen periode vs. de periode ervoor.</p>
+      <p className="muted forecast-note">
+        {rows[0]?.enough === false
+          ? "Nog weinig verkoopdagen: lees de verwachting als ruwe indicatie."
+          : "Verwachting op het tempo van de laatste 4 weken."}
+      </p>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Periode</th>
-              <th className="amount">Vorige</th>
+              <th className="amount">Ervoor</th>
               <th className="amount">Afgelopen</th>
               <th className="amount">Trend</th>
               <th className="amount">Verwacht komend</th>
@@ -1207,14 +1159,14 @@ function ForecastPanel({ data }: { data: TrackerData }) {
           </thead>
           <tbody>
             {rows.map((row) => {
-              const dir = row.trendPct > 0 ? "up" : row.trendPct < 0 ? "down" : "flat";
-              const arrow = row.trendPct > 0 ? "▲" : row.trendPct < 0 ? "▼" : "•";
+              const change = pctChange(row.afgelopen, row.vorige);
+              const dir = change === null || change > 0 ? "up" : change < 0 ? "down" : "flat";
               return (
                 <tr key={row.label}>
                   <td>{row.label}</td>
                   <td className="amount">{fmt(row.vorige)}</td>
                   <td className="amount">{fmt(row.afgelopen)}</td>
-                  <td className="amount"><span className={`delta-chip ${dir}`}>{arrow} {Math.abs(row.trendPct).toFixed(0)}%</span></td>
+                  <td className="amount"><span className={`delta-chip ${dir}`}>{pctText(change)}</span></td>
                   <td className="amount"><strong>{fmt(row.verwacht)}</strong></td>
                 </tr>
               );
@@ -1222,15 +1174,16 @@ function ForecastPanel({ data }: { data: TrackerData }) {
           </tbody>
         </table>
       </div>
+      </div>
     </Panel>
   );
 }
 
-function WeekdayPanel({ data }: { data: TrackerData }) {
+function WeekdayPanel({ days }: { days: DayBucket[] }) {
   const [mode, setMode] = useState<"gemiddeld" | "totaal">("gemiddeld");
-  const rows = useMemo(() => weekdayStats(data), [data]);
-  if (data.sales.length === 0) return null;
-  const valueOf = (row: (typeof rows)[number]) => (mode === "gemiddeld" ? row.gemiddeld : row.omzet);
+  const rows = useMemo(() => weekdayAverages(days), [days]);
+  if (!days.some((day) => day.transacties > 0)) return null;
+  const valueOf = (row: (typeof rows)[number]) => (mode === "gemiddeld" ? row.gemiddeld : row.totaal);
   const max = Math.max(1, ...rows.map(valueOf));
   const best = rows.reduce((top, row) => (valueOf(row) > valueOf(top) ? row : top), rows[0]);
   return (
@@ -1248,7 +1201,11 @@ function WeekdayPanel({ data }: { data: TrackerData }) {
           </div>
         ))}
       </div>
-      <p className="muted forecast-note">{mode === "gemiddeld" ? "Gemiddelde omzet per keer dat die weekdag voorkwam." : "Totale omzet per weekdag over de hele historie."}</p>
+      <p className="muted forecast-note">
+        {mode === "gemiddeld"
+          ? "Gemiddelde omzet per keer dat die weekdag voorkwam sinds de start. Dagen zonder verkoop tellen mee als €0."
+          : "Totale omzet per weekdag over de hele historie."}
+      </p>
     </Panel>
   );
 }
@@ -1285,57 +1242,8 @@ function LoyaltyPanel({ data }: { data: TrackerData }) {
   );
 }
 
-function BusinessPulse({ data }: { data: TrackerData }) {
-  const series = useMemo(() => dailySeries(data, 14), [data]);
-  const previous = series.slice(0, 7).reduce(
-    (sum, day) => ({
-      omzet: sum.omzet + day.omzet,
-      winst: sum.winst + day.winst,
-      stuks: sum.stuks + day.stuks,
-      dagen: sum.dagen + (day.omzet > 0 || day.stuks > 0 ? 1 : 0)
-    }),
-    { omzet: 0, winst: 0, stuks: 0, dagen: 0 }
-  );
-  const current = series.slice(7).reduce(
-    (sum, day) => ({
-      omzet: sum.omzet + day.omzet,
-      winst: sum.winst + day.winst,
-      stuks: sum.stuks + day.stuks,
-      dagen: sum.dagen + (day.omzet > 0 || day.stuks > 0 ? 1 : 0)
-    }),
-    { omzet: 0, winst: 0, stuks: 0, dagen: 0 }
-  );
-  const pct = previous.omzet > 0 ? ((current.omzet - previous.omzet) / previous.omzet) * 100 : current.omzet > 0 ? 100 : 0;
-  const state = Math.abs(pct) < 5 ? "stable" : pct > 0 ? "up" : "down";
-  const label = state === "up" ? "Groei" : state === "down" ? "Daling" : "Stabiel";
-  const sentence =
-    state === "up"
-      ? "Je verkoopt meer dan vorige week."
-      : state === "down"
-        ? "Je verkoopt minder dan vorige week."
-        : "Je verkoop is ongeveer gelijk aan vorige week.";
-
-  return (
-    <Panel title="Groei-indicatie">
-      <div className={`pulse-card ${state}`}>
-        <div>
-          <span className="pulse-label">{label}</span>
-          <strong>{pct >= 0 ? "+" : "-"}{Math.abs(pct).toFixed(0)}%</strong>
-          <p>{sentence}</p>
-        </div>
-        <div className="pulse-grid">
-          <span><small>Laatste 7 dagen</small><strong>{euro(current.omzet)}</strong></span>
-          <span><small>Vorige 7 dagen</small><strong>{euro(previous.omzet)}</strong></span>
-          <span><small>Stuks</small><strong>{current.stuks} vs {previous.stuks}</strong></span>
-          <span><small>Actieve dagen</small><strong>{current.dagen} vs {previous.dagen}</strong></span>
-        </div>
-      </div>
-    </Panel>
-  );
-}
 
 function Insights({ data }: { data: TrackerData }) {
-  const forecast = useMemo(() => salesForecast(data), [data]);
   const restock = useMemo(() => restockSuggestions(data), [data]);
   const topFlavor = useMemo(() => {
     const today = normalizeDate(new Date());
@@ -1357,79 +1265,35 @@ function Insights({ data }: { data: TrackerData }) {
     for (const [id, value] of omzet) if (value > best) { best = value; bestId = id; }
     return bestId ? { name: variantName(data, bestId), omzet: best } : null;
   }, [data]);
-  const busiestDay = useMemo(() => {
-    const byDay = new Map<string, number>();
-    for (const sale of data.sales) {
-      if (!isRegularSale(sale)) continue;
-      const name = new Date(sale.datum).toLocaleDateString("nl-NL", { weekday: "long" });
-      byDay.set(name, (byDay.get(name) ?? 0) + sale.bedrag);
-    }
-    let bestDay = "";
-    let best = 0;
-    for (const [name, value] of byDay) if (value > best) { best = value; bestDay = name; }
-    return bestDay || null;
-  }, [data]);
 
   if (!data.sales.some(isRegularSale)) return null;
 
-  const trendArrow = forecast.trendPct > 1 ? "▲" : forecast.trendPct < -1 ? "▼" : "→";
-
   return (
-    <Panel title="Inzichten">
-      <div className="insight-stats">
-        <div className="insight-stat">
-          <span className="lbl">Verwachte omzet · 7 dagen</span>
-          <span className="val">
-            <strong className={forecast.enough ? (forecast.trendPct >= 0 ? "green" : "red") : ""}>{forecast.enough ? euro(forecast.next7) : "—"}</strong>
-            <small>{forecast.enough ? `${trendArrow} ${Math.abs(forecast.trendPct).toFixed(0)}% vs. vorige week` : `nog ${Math.max(1, 10 - forecast.daysOfData)} dag(en) data nodig`}</small>
-          </span>
-        </div>
-        <div className="insight-stat">
-          <span className="lbl">Gem. omzet per dag</span>
-          <span className="val"><strong>{forecast.enough ? euro(forecast.perDay) : "—"}</strong></span>
-        </div>
-        <div className="insight-stat">
-          <span className="lbl">Aanvullen nodig</span>
-          <span className="val"><strong className={restock.length ? "red" : "green"}>{restock.length} {restock.length === 1 ? "smaak" : "smaken"}</strong></span>
-        </div>
-      </div>
-
+    <Panel title="Aanvullen">
       {restock.length ? (
-        <>
-          <p className="section-eyebrow">Bijna op — aanvullen</p>
-          <div className="restock-list">
-            {restock.slice(0, 6).map((item) => (
-              <div className="restock-row" key={item.variant.id}>
-                <div className="restock-head">
-                  <span className="restock-name">
-                    <span className={`brand-badge brand-${brandClass(item.variant.merk)}`}>{item.variant.merk}</span>
-                    <span className="restock-flavor">{item.variant.smaak}</span>
-                  </span>
-                  <strong className={item.daysLeft < 4 ? "danger-text" : "muted"}>{item.daysLeft < 1 ? "bijna op" : `~${Math.round(item.daysLeft)} dgn`}</strong>
-                </div>
-                <div className="restock-meta">{item.variant.voorraad} op voorraad · ≈ {item.perDay.toFixed(1)}/dag</div>
+        <div className="restock-list">
+          {restock.slice(0, 6).map((item) => (
+            <div className="restock-row" key={item.variant.id}>
+              <div className="restock-head">
+                <span className="restock-name">
+                  <span className={`brand-badge brand-${brandClass(item.variant.merk)}`}>{item.variant.merk}</span>
+                  <span className="restock-flavor">{item.variant.smaak}</span>
+                </span>
+                <strong className={item.daysLeft < 4 ? "danger-text" : "muted"}>{item.daysLeft < 1 ? "bijna op" : `~${Math.round(item.daysLeft)} dgn`}</strong>
               </div>
-            ))}
-          </div>
-        </>
+              <div className="restock-meta">{item.variant.voorraad} op voorraad · ≈ {item.perDay.toFixed(1)}/dag</div>
+            </div>
+          ))}
+        </div>
       ) : (
-        <p className="muted">Voorraad ziet er goed uit — niets dat op korte termijn opraakt.</p>
+        <p className="muted">Niets dat binnen 10 dagen opraakt.</p>
       )}
-
-      {topFlavor || busiestDay ? (
+      {topFlavor ? (
         <div className="insight-stats">
-          {topFlavor ? (
-            <div className="insight-stat">
-              <span className="lbl">Best verkocht · 30 dgn</span>
-              <span className="val"><strong>{topFlavor.name}</strong><small>{euro(topFlavor.omzet)}</small></span>
-            </div>
-          ) : null}
-          {busiestDay ? (
-            <div className="insight-stat">
-              <span className="lbl">Drukste dag</span>
-              <span className="val"><strong className="cap">{busiestDay}</strong></span>
-            </div>
-          ) : null}
+          <div className="insight-stat">
+            <span className="lbl">Best verkocht · 30 dgn</span>
+            <span className="val"><strong>{topFlavor.name}</strong><small>{euro(topFlavor.omzet)}</small></span>
+          </div>
         </div>
       ) : null}
     </Panel>
@@ -1488,31 +1352,26 @@ function TrendChart({ data }: { data: TrackerData }) {
   );
 }
 
-function TopFlop({ analytics, period }: { analytics: AnalyticsSummary; period: OverviewPeriod }) {
-  const groups = groupDaysForTopFlop(analytics.days, period);
-  if (groups.length < 2) return null;
-  const best = [...groups].sort((a, b) => b.omzet - a.omzet)[0];
-  const worst = [...groups].sort((a, b) => a.omzet - b.omzet)[0];
-  const title = period === "week" ? "Beste & slechtste dag deze periode" : period === "maand" ? "Beste & slechtste dag deze maand" : "Beste & slechtste dag all time";
+function TopFlop({ days, range, title }: { days: DayBucket[]; range: Range; title: string }) {
+  const from = ymd(range.start);
+  const to = ymd(range.end);
+  // Alleen dagen waarop er echt verkocht is: een dag zonder verkoop is geen "slechtste verkoopdag".
+  const sold = days.filter((day) => day.date >= from && day.date < to && day.transacties > 0);
+  if (sold.length < 2) return null;
+  const toItem = (day: DayBucket) => ({ label: dateKey(parseYmd(day.date)), omzet: day.omzet, winst: day.winst, stuks: day.stuks });
+  const best = sold.reduce((top, day) => (day.omzet > top.omzet ? day : top));
+  const worst = sold.reduce((low, day) => (day.omzet < low.omzet ? day : low));
   return (
     <section>
-      <p className="section-eyebrow">{title}</p>
+      <p className="section-eyebrow">Beste & slechtste verkoopdag · {title}</p>
       <div className="topflop-grid">
-        <TopFlopCard title="Beste dag" item={best} tone="good" />
-        <TopFlopCard title="Slechtste dag" item={worst} tone="bad" />
+        <TopFlopCard title="Beste dag" item={toItem(best)} tone="good" />
+        <TopFlopCard title="Slechtste dag" item={toItem(worst)} tone="bad" />
       </div>
     </section>
   );
 }
 
-function groupDaysForTopFlop(days: DayBucket[], period: OverviewPeriod) {
-  const bounds = getPeriodBounds(period);
-  const start = bounds ? ymd(bounds.start) : null;
-  const end = bounds ? ymd(bounds.end) : null;
-  return days
-    .filter((day) => !start || !end || (day.date >= start && day.date < end))
-    .map((day) => ({ label: dateKey(parseYmd(day.date)), omzet: day.omzet, winst: day.winst, stuks: day.stuks }));
-}
 
 function TopFlopCard({ title, item, tone }: { title: string; item: { label: string; omzet: number; winst: number; stuks: number }; tone: "good" | "bad" }) {
   return (
@@ -2938,17 +2797,18 @@ function toRankItem(row: RankAcc, key: string, label: string, sort: RankSort): R
   return { key, merk: row.merk, label, value, valueLabel, sub };
 }
 
-function percentChange(current: number, previous: number) {
-  if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / Math.abs(previous)) * 100;
-}
 
-function percentText(value: number) {
+
+
+
+function pctText(value: number | null) {
+  if (value === null) return "nieuw";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${Math.abs(value).toFixed(1)}%`;
+  return `${sign}${Math.abs(value).toFixed(0)}%`;
 }
 
-function trendTone(value: number): TrendTone {
+function trendTone(value: number | null): TrendTone {
+  if (value === null) return "up";
   if (Math.abs(value) < 5) return "stable";
   return value > 0 ? "up" : "down";
 }
@@ -2957,47 +2817,31 @@ function trendLabel(tone: TrendTone) {
   return tone === "up" ? "Groei" : tone === "down" ? "Daling" : "Stabiel";
 }
 
+const PERIOD_NAMES: Record<PeriodKind, string> = { dag: "dag", week: "week", "4weken": "4-wekenblok", maand: "maand" };
+
 function StatsView({ data, analytics }: { data: TrackerData; analytics: AnalyticsSummary }) {
-  const [period, setPeriod] = useState<StatsPeriod>("week");
-  const [selectedPeriod, setSelectedPeriod] = useState("");
-  const firstSale = useMemo(() => (analytics.days.length ? parseYmd(analytics.days[0].date) : null), [analytics.days]);
-  const groups = useMemo(() => {
-    const map = new Map<string, StatsGroup>();
-    for (const day of analytics.days) {
-      const date = parseYmd(day.date);
-      const key = statsPeriodKey(date, period, firstSale);
-      const current = map.get(key) || { label: key, sort: statsPeriodSort(date, period, firstSale), omzet: 0, winst: 0, stuks: 0, transacties: 0 };
-      current.omzet += day.omzet;
-      current.winst += day.winst;
-      current.stuks += day.stuks;
-      current.transacties += day.transacties;
-      map.set(key, current);
-    }
-    return [...map.values()].sort((a, b) => b.sort - a.sort);
-  }, [analytics.days, firstSale, period]);
-  const chronologicalGroups = useMemo(() => [...groups].sort((a, b) => a.sort - b.sort), [groups]);
-  const previousByLabel = useMemo(() => {
-    const map = new Map<string, StatsGroup | null>();
-    chronologicalGroups.forEach((group, index) => map.set(group.label, chronologicalGroups[index - 1] || null));
-    return map;
-  }, [chronologicalGroups]);
-  const latestGroup = groups[0] || null;
-  const previousGroup = groups[1] || null;
-  const omzetGrowth = latestGroup && previousGroup ? percentChange(latestGroup.omzet, previousGroup.omzet) : 0;
-  const stuksGrowth = latestGroup && previousGroup ? percentChange(latestGroup.stuks, previousGroup.stuks) : 0;
-  const shownGroups = selectedPeriod ? groups.filter((group) => group.label === selectedPeriod) : groups;
-  const activeStats = selectedPeriod
-    ? groups.find((group) => group.label === selectedPeriod) || { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
-    : groups[0] || { omzet: 0, winst: 0, stuks: 0, transacties: 0 };
-  const margin = activeStats.omzet > 0 ? (activeStats.winst / activeStats.omzet) * 100 : 0;
-  const byDay = useMemo(
-    () =>
-      [...analytics.days]
-        .sort((a, b) => b.omzet - a.omzet)
-        .slice(0, 7)
-        .map((day) => ({ label: dateKey(parseYmd(day.date)), omzet: day.omzet, winst: day.winst, stuks: day.stuks, transacties: day.transacties })),
-    [analytics.days]
-  );
+  const [period, setPeriod] = useState<PeriodKind>("week");
+  const [selectedLabel, setSelectedLabel] = useState("");
+  const [rankSort, setRankSort] = useState<RankSort>("omzet");
+  const rows = useMemo(() => buildPeriods(analytics.days, period, new Date(), period === "dag" ? 90 : 400), [analytics.days, period]);
+  const selected = selectedLabel ? rows.find((row) => row.label === selectedLabel) ?? null : null;
+  const active = selected ?? rows[0] ?? null;
+  const cmp = active ? compareWithPrevious(analytics.days, period, active.range) : null;
+  const showCompare = Boolean(active?.groei) && !(period === "dag" && active?.lopend);
+  const cur = cmp ? derive(cmp.current) : null;
+  const prev = cmp ? derive(cmp.previous) : null;
+  const ad = active?.derived;
+  const vs = (value: string) => (showCompare && cmp ? `vs ${value} ${cmp.previousLabel}` : undefined);
+
+  const bestDays = useMemo(() => {
+    const from = selected ? ymd(selected.range.start) : "";
+    const to = selected ? ymd(selected.range.end) : "9999";
+    return analytics.days
+      .filter((day) => day.transacties > 0 && day.date >= from && day.date < to)
+      .sort((a, b) => b.omzet - a.omzet)
+      .slice(0, 7);
+  }, [analytics.days, selected]);
+
   const paymentStats = useMemo(() => {
     const map = new Map<PaymentMethod, { omzet: number; count: number }>([
       [PaymentMethod.CASH, { omzet: 0, count: 0 }],
@@ -3008,31 +2852,35 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
     return map;
   }, [analytics.paymentSplit]);
   const totalPayment = [...paymentStats.values()].reduce((sum, item) => sum + item.omzet, 0);
-  const [rankSort, setRankSort] = useState<RankSort>("omzet");
+
   const ranks = useMemo(() => {
     const flavors = new Map<string, RankAcc>();
     const brands = new Map<string, RankAcc>();
     for (const sale of data.sales) {
       if (!isRegularSale(sale)) continue;
-      if (selectedPeriod && statsPeriodKey(normalizeDate(new Date(sale.datum)), period, firstSale) !== selectedPeriod) continue;
+      if (selected) {
+        const date = normalizeDate(new Date(sale.datum));
+        if (date < selected.range.start || date >= selected.range.end) continue;
+      }
       for (const item of sale.items) {
         const variant = data.variants.find((v) => v.id === item.variantId);
         if (!variant || isImportBucket(variant.merk)) continue;
-        const winst = item.bedrag - item.aantal * variant.inkoopPrijs;
+        const winst = item.bedrag - item.aantal * itemCost(data, item);
+        const stuks = sale.gratis ? 0 : item.aantal;
         const flavor = flavors.get(variant.id) || { merk: variant.merk, smaak: variant.smaak, stuks: 0, omzet: 0, winst: 0 };
-        flavor.stuks += item.aantal;
+        flavor.stuks += stuks;
         flavor.omzet += item.bedrag;
         flavor.winst += winst;
         flavors.set(variant.id, flavor);
         const brand = brands.get(variant.merk) || { merk: variant.merk, smaak: "", stuks: 0, omzet: 0, winst: 0 };
-        brand.stuks += item.aantal;
+        brand.stuks += stuks;
         brand.omzet += item.bedrag;
         brand.winst += winst;
         brands.set(variant.merk, brand);
       }
     }
     return { flavors: [...flavors.entries()], brands: [...brands.values()] };
-  }, [data, period, selectedPeriod, firstSale]);
+  }, [data, selected]);
   const flavorItems = [...ranks.flavors]
     .sort((a, b) => rankMetric(b[1], rankSort) - rankMetric(a[1], rankSort))
     .slice(0, 8)
@@ -3049,15 +2897,15 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
           {([
             ["dag", "Per dag"],
             ["week", "Per week"],
-            ["maand", "Per maand"],
-            ["4weken", "Per 4 weken"]
-          ] as Array<[StatsPeriod, string]>).map(([value, label]) => (
+            ["4weken", "Per 4 weken"],
+            ["maand", "Per maand"]
+          ] as Array<[PeriodKind, string]>).map(([value, label]) => (
             <button
               className={period === value ? "active" : ""}
               key={value}
               onClick={() => {
                 setPeriod(value);
-                setSelectedPeriod("");
+                setSelectedLabel("");
               }}
               type="button"
             >
@@ -3065,71 +2913,77 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
             </button>
           ))}
         </div>
-        <select className="period-select" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>
-          <option value="">Alle periodes</option>
-          {groups.map((group) => (
-            <option key={group.label} value={group.label}>{group.label}</option>
+        <select className="period-select" value={selectedLabel} onChange={(event) => setSelectedLabel(event.target.value)}>
+          <option value="">Huidige {PERIOD_NAMES[period]}</option>
+          {rows.map((row) => (
+            <option key={row.label} value={row.label}>{row.label}{row.lopend ? " (loopt)" : ""}</option>
           ))}
         </select>
       </div>
-      {data.sales.length === 0 ? (
+      {!active || !ad ? (
         <Panel title="Overzicht">
           <p className="empty">Nog geen verkopen om te analyseren.</p>
         </Panel>
       ) : (
         <>
+          <p className="muted forecast-note">
+            {active.label}
+            {active.lopend && showCompare && cmp ? ` · loopt nog, vergeleken met ${cmp.previousLabel}` : ""}
+          </p>
           <div className="metric-grid kpis">
             <Metric
               label="Omzet"
-              value={euro(activeStats.omzet)}
-              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.omzet, previous: previousGroup.omzet } : undefined}
+              value={euro(ad.omzetTotaal)}
+              delta={showCompare && cur && prev ? { current: cur.omzetTotaal, previous: prev.omzetTotaal } : undefined}
+              sub={[prev && vs(euro(prev.omzetTotaal)), active.totals.dealOmzet > 0 ? `incl. ${euro(active.totals.dealOmzet)} doorverkoop` : ""].filter(Boolean).join(" · ") || undefined}
             />
             <Metric
               label="Winst"
-              value={euro(activeStats.winst)}
-              tone={activeStats.winst >= 0 ? "good" : "bad"}
-              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.winst, previous: previousGroup.winst } : undefined}
+              value={euro(ad.winstTotaal)}
+              tone={ad.winstTotaal >= 0 ? "good" : "bad"}
+              delta={showCompare && cur && prev ? { current: cur.winstTotaal, previous: prev.winstTotaal } : undefined}
+              sub={prev ? vs(euro(prev.winstTotaal)) : undefined}
             />
-            <Metric label="Winstmarge" value={`${margin.toFixed(1)}%`} tone={margin >= 0 ? "good" : "bad"} />
+            <Metric label="Marge" value={`${ad.marge.toFixed(1)}%`} tone={ad.marge >= 0 ? "good" : "bad"} />
+            <Metric
+              label="Geld binnen"
+              value={euro(ad.ontvangen)}
+              delta={showCompare && cur && prev ? { current: cur.ontvangen, previous: prev.ontvangen } : undefined}
+              sub={`${euro(active.totals.opPof)} op pof · ${euro(active.totals.terugbetaald)} terug`}
+            />
             <Metric
               label="Bakjes verkocht"
-              value={String(activeStats.stuks)}
-              delta={!selectedPeriod && latestGroup && previousGroup ? { current: latestGroup.stuks, previous: previousGroup.stuks } : undefined}
+              value={String(active.totals.stuks)}
+              delta={showCompare && cmp ? { current: cmp.current.stuks, previous: cmp.previous.stuks } : undefined}
+              sub={cmp ? vs(String(cmp.previous.stuks)) : undefined}
             />
-            <Metric label="Transacties" value={String(activeStats.transacties)} />
-            {!selectedPeriod ? (
-              <Metric
-                label="Richting"
-                value={trendLabel(trendTone(omzetGrowth))}
-                tone={trendTone(omzetGrowth) === "up" ? "good" : trendTone(omzetGrowth) === "down" ? "bad" : undefined}
-                sub={`${percentText(omzetGrowth)} omzet, ${percentText(stuksGrowth)} stuks vs vorige ${statsPeriodLabel(period)}`}
-              />
-            ) : null}
+            <Metric label="Transacties" value={String(active.totals.transacties)} sub={active.totals.deals ? `+ ${active.totals.deals} doorverkoop` : undefined} />
           </div>
-          {!selectedPeriod ? <StatsGrowthPanel groups={chronologicalGroups} period={period} /> : null}
-          <Panel title={`Overzicht per ${statsPeriodLabel(period)}`}>
+          {!selected ? <StatsGrowthPanel rows={rows} period={period} /> : null}
+          <Panel title={`Overzicht per ${PERIOD_NAMES[period]}`}>
             <DataTable
-              headers={["Periode", "Transacties", "Stuks", "Stuks groei", "Omzet", "Omzet groei", "Winst", "Marge"]}
-              align={[false, true, true, true, true, true, true, true]}
-              rows={shownGroups.map((group) => {
-                const previous = previousByLabel.get(group.label);
-                return [
-                  group.label,
-                  String(group.transacties),
-                  String(group.stuks),
-                  previous ? percentText(percentChange(group.stuks, previous.stuks)) : "-",
-                  euro(group.omzet),
-                  previous ? percentText(percentChange(group.omzet, previous.omzet)) : "-",
-                  euro(group.winst),
-                  group.omzet > 0 ? `${((group.winst / group.omzet) * 100).toFixed(1)}%` : "0.0%"
-                ];
-              })}
+              headers={["Periode", "Trans.", "Stuks", "Omzet", "Groei", "Winst", "Marge", "Geld binnen", "Op pof"]}
+              align={[false, true, true, true, true, true, true, true, true]}
+              rows={(selected ? [selected] : rows).map((row) => [
+                `${row.label}${row.lopend ? " · loopt" : ""}`,
+                String(row.totals.transacties),
+                String(row.totals.stuks),
+                euro(row.derived.omzetTotaal),
+                row.groei ? pctText(row.groei.omzet) : "-",
+                euro(row.derived.winstTotaal),
+                row.derived.omzetTotaal > 0 ? `${row.derived.marge.toFixed(1)}%` : "-",
+                euro(row.derived.ontvangen),
+                euro(row.totals.opPof)
+              ])}
             />
+            <p className="muted forecast-note">Groei bij een lopende periode = vergeleken met evenveel dagen van de vorige.</p>
           </Panel>
-          <Panel title="Beste verkoopdagen">
+          <MoneyMonthsPanel days={analytics.days} />
+          <Panel title={selected ? `Beste verkoopdagen · ${selected.label}` : "Beste verkoopdagen ooit"}>
             <DataTable
               headers={["Dag", "Omzet", "Winst", "Stuks", "Transacties"]}
-              rows={byDay.map((stat) => [stat.label, euro(stat.omzet), euro(stat.winst), String(stat.stuks), String(stat.transacties)])}
+              align={[false, true, true, true, true]}
+              rows={bestDays.map((day) => [dateKey(parseYmd(day.date)), euro(day.omzet), euro(day.winst), String(day.stuks), String(day.transacties)])}
             />
           </Panel>
           {flavorItems.length ? (
@@ -3149,14 +3003,15 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
               <RankList items={brandItems} />
             </Panel>
           ) : null}
-          <Panel title="Betaalmethodes">
+          <Panel title="Betaalmethodes · hele historie">
             <DataTable
-              headers={["Methode", "Transacties", "Omzet", "Aandeel"]}
+              headers={["Methode", "Betalingen", "Bedrag", "Aandeel"]}
+              align={[false, true, true, true]}
               rows={[PaymentMethod.CASH, PaymentMethod.TIKKIE, PaymentMethod.POF].map((method) => {
                 const stat = paymentStats.get(method) || { omzet: 0, count: 0 };
                 return [
                   paymentLabel(method),
-                  `${stat.count} transacties`,
+                  String(stat.count),
                   euro(stat.omzet),
                   totalPayment > 0 ? `${((stat.omzet / totalPayment) * 100).toFixed(1)}%` : "-"
                 ];
@@ -3169,10 +3024,51 @@ function StatsView({ data, analytics }: { data: TrackerData; analytics: Analytic
   );
 }
 
-function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: StatsPeriod }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+// Per maand: wat er verkocht is, wat er echt binnenkwam en hoe de pof zich ontwikkelt.
+function MoneyMonthsPanel({ days }: { days: DayBucket[] }) {
+  const months = useMemo(() => moneyByMonth(days), [days]);
+  const avg = useMemo(() => moneyAverages(months), [months]);
+  if (months.length === 0) return null;
+  return (
+    <Panel title="Geld binnen & pof per maand">
+      <DataTable
+        headers={["Maand", "Omzet", "Cash", "Tikkie", "Op pof", "Pof terug", "Geld binnen", "% op pof", "Pof open eind"]}
+        align={[false, true, true, true, true, true, true, true, true]}
+        rows={[...months].reverse().map((month) => [
+          `${month.label}${month.lopend ? " · loopt" : ""}`,
+          euro(month.omzet),
+          euro(month.cash),
+          euro(month.tikkie),
+          euro(month.opPof),
+          euro(month.terugbetaald),
+          euro(month.ontvangen),
+          month.omzet > 0 ? `${month.pofPct.toFixed(0)}%` : "-",
+          euro(month.saldoEind)
+        ])}
+      />
+      {avg ? (
+        <div className="insight-stats">
+          <div className="insight-stat">
+            <span className="lbl">Gemiddeld per maand{avg.alleenLopend ? "" : ` (${avg.maanden} volledige ${avg.maanden === 1 ? "maand" : "maanden"})`}</span>
+            <span className="val">
+              <strong>{euro(avg.ontvangen)} binnen op {euro(avg.omzet)} omzet</strong>
+              <small>{euro(avg.opPof)} op de pof ({avg.pofPct.toFixed(0)}%) · {euro(avg.terugbetaald)} terugbetaald</small>
+            </span>
+          </div>
+        </div>
+      ) : null}
+      <p className="muted forecast-note">
+        Geld binnen = cash + Tikkie + terugbetaalde pof. "Pof open eind" is wat er aan het eind van die maand nog openstond. Bij oude deelbetalingen (van vóór deze update) is de datum geschat. Maanden van vóór de pof-administratie tellen niet mee in het gemiddelde.
+      </p>
+    </Panel>
+  );
+}
 
-  if (groups.length < 2) {
+function StatsGrowthPanel({ rows, period }: { rows: PeriodRow[]; period: PeriodKind }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const chronological = useMemo(() => [...rows].reverse(), [rows]);
+
+  if (chronological.length < 2) {
     return (
       <Panel title="Groei-analyse">
         <p className="empty">Nog te weinig periodes om groei te vergelijken.</p>
@@ -3180,67 +3076,51 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
     );
   }
 
-  const latest = groups[groups.length - 1];
-  const previous = groups[groups.length - 2];
-  const first = groups[0];
-  const periodName = period === "4weken" ? "4-wekenperiode" : statsPeriodLabel(period);
-  const omzetPct = percentChange(latest.omzet, previous.omzet);
-  const winstPct = percentChange(latest.winst, previous.winst);
-  const stuksPct = percentChange(latest.stuks, previous.stuks);
-  const tone = trendTone(omzetPct);
-  const overallPct = percentChange(latest.omzet, first.omzet);
-  const overallTone = trendTone(overallPct);
-  const chartGroups = groups.slice(-10);
-  const maxOmzet = Math.max(1, ...chartGroups.map((group) => group.omzet));
-  const selectedIndex = Math.min(activeIndex ?? chartGroups.length - 1, chartGroups.length - 1);
-  const selectedGroup = chartGroups[selectedIndex];
-  const selectedPrevious = groups[groups.findIndex((item) => item.label === selectedGroup.label) - 1] || null;
-  const selectedPct = selectedPrevious ? percentChange(selectedGroup.omzet, selectedPrevious.omzet) : 0;
+  const latest = chronological[chronological.length - 1];
+  const groei = latest.groei!;
+  const tone = trendTone(groei.omzet);
+  const name = PERIOD_NAMES[period];
+  const chartRows = chronological.slice(-12);
+  const maxOmzet = Math.max(1, ...chartRows.map((row) => row.derived.omzetTotaal));
+  const selectedIndex = Math.min(activeIndex ?? chartRows.length - 1, chartRows.length - 1);
+  const selectedRow = chartRows[selectedIndex];
   const chartWidth = 640;
   const chartHeight = 178;
   const plot = { left: 34, right: 612, top: 18, bottom: 156 };
-  const pointFor = (group: StatsGroup, index: number) => {
-    const x = chartGroups.length === 1 ? (plot.left + plot.right) / 2 : plot.left + (index / (chartGroups.length - 1)) * (plot.right - plot.left);
-    const y = plot.bottom - (group.omzet / maxOmzet) * (plot.bottom - plot.top);
-    return { x, y };
-  };
-  const linePoints = chartGroups.map(pointFor);
-  const linePath = linePoints.map((point) => `${point.x},${point.y}`).join(" ");
-  const areaPath = `${plot.left},${plot.bottom} ${linePath} ${linePoints[linePoints.length - 1]?.x ?? plot.right},${plot.bottom}`;
+  const points = chartRows.map((row, index) => ({
+    x: chartRows.length === 1 ? (plot.left + plot.right) / 2 : plot.left + (index / (chartRows.length - 1)) * (plot.right - plot.left),
+    y: plot.bottom - (row.derived.omzetTotaal / maxOmzet) * (plot.bottom - plot.top)
+  }));
+  const linePath = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPath = `${plot.left},${plot.bottom} ${linePath} ${points[points.length - 1]?.x ?? plot.right},${plot.bottom}`;
 
   return (
     <Panel title="Groei-analyse">
       <div className="stats-growth">
         <article className={`growth-summary ${tone}`}>
           <span>{trendLabel(tone)}</span>
-          <strong>{percentText(omzetPct)}</strong>
+          <strong>{pctText(groei.omzet)}</strong>
           <p>
-            {tone === "up"
-              ? `Je omzet is hoger dan de vorige ${periodName}.`
-              : tone === "down"
-                ? `Je omzet is lager dan de vorige ${periodName}.`
-                : `Je omzet blijft ongeveer gelijk aan de vorige ${periodName}.`}
+            Omzet {latest.lopend ? `tot nu toe deze ${name}` : `deze ${name}`} tegenover {groei.vergelijkLabel}.
           </p>
         </article>
         <div className="growth-breakdown">
-          <span><small>Huidige periode</small><strong>{euro(latest.omzet)}</strong><em>{latest.stuks} stuks</em></span>
-          <span><small>Vorige periode</small><strong>{euro(previous.omzet)}</strong><em>{previous.stuks} stuks</em></span>
-          <span><small>Winstgroei</small><strong>{percentText(winstPct)}</strong><em>{euro(latest.winst)} winst</em></span>
-          <span><small>Stuksgroei</small><strong>{percentText(stuksPct)}</strong><em>{latest.transacties} transacties</em></span>
+          <span><small>{latest.lopend ? "Tot nu toe" : "Deze periode"}</small><strong>{euro(latest.derived.omzetTotaal)}</strong><em>{latest.totals.stuks} stuks</em></span>
+          <span><small>Geld binnen</small><strong>{euro(latest.derived.ontvangen)}</strong><em>{euro(latest.totals.opPof)} op pof</em></span>
+          <span><small>Winstgroei</small><strong>{pctText(groei.winst)}</strong><em>{euro(latest.derived.winstTotaal)} winst</em></span>
+          <span><small>Stuksgroei</small><strong>{pctText(groei.stuks)}</strong><em>{latest.totals.transacties} transacties</em></span>
         </div>
       </div>
       <div className="growth-line-chart" aria-label="Omzetontwikkeling per periode">
         <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img">
           <polyline className="growth-area" points={areaPath} />
           <polyline className="growth-line" points={linePath} />
-          {linePoints.map((point, index) => {
-            const group = chartGroups[index];
-            const previousGroup = groups[groups.findIndex((item) => item.label === group.label) - 1] || null;
-            const pct = previousGroup ? percentChange(group.omzet, previousGroup.omzet) : 0;
+          {points.map((point, index) => {
+            const row = chartRows[index];
             return (
               <g
-                className={`growth-point ${trendTone(pct)}${selectedIndex === index ? " active" : ""}`}
-                key={group.label}
+                className={`growth-point ${trendTone(row.groei?.omzet ?? 0)}${selectedIndex === index ? " active" : ""}`}
+                key={row.label}
                 onClick={() => setActiveIndex(index)}
                 onFocus={() => setActiveIndex(index)}
                 onMouseEnter={() => setActiveIndex(index)}
@@ -3253,27 +3133,24 @@ function StatsGrowthPanel({ groups, period }: { groups: StatsGroup[]; period: St
                 role="button"
                 tabIndex={0}
               >
-                <title>{`${group.label}: ${euro(group.omzet)}`}</title>
+                <title>{`${row.label}: ${euro(row.derived.omzetTotaal)}`}</title>
                 <circle cx={point.x} cy={point.y} r="5" />
               </g>
             );
           })}
         </svg>
         <div className="growth-chart-readout">
-          <strong>{selectedGroup.label}</strong>
-          <span>Omzet {euro(selectedGroup.omzet)}</span>
-          <span>Winst {euro(selectedGroup.winst)}</span>
-          <span>{selectedGroup.stuks} stuks</span>
-          <span>{selectedPrevious ? `${percentText(selectedPct)} vs vorige periode` : "Eerste periode"}</span>
+          <strong>{selectedRow.label}{selectedRow.lopend ? " (loopt nog)" : ""}</strong>
+          <span>Omzet {euro(selectedRow.derived.omzetTotaal)}</span>
+          <span>Winst {euro(selectedRow.derived.winstTotaal)}</span>
+          <span>Geld binnen {euro(selectedRow.derived.ontvangen)}</span>
+          <span>{selectedRow.groei ? `${pctText(selectedRow.groei.omzet)} vs ${selectedRow.groei.vergelijkLabel}` : "Eerste periode"}</span>
         </div>
-      </div>
-      <div className={`overall-direction ${overallTone}`}>
-        <strong>Algemene richting: {trendLabel(overallTone)}</strong>
-        <span>{percentText(overallPct)} omzet sinds de eerste getoonde periode.</span>
       </div>
     </Panel>
   );
 }
+
 
 // Eén persoon op de poflijst: toont het openstaande restbedrag en een invoerveld
 // om een (deel)betaling af te boeken zonder posten te hoeven verwijderen.
@@ -3528,10 +3405,10 @@ function SettingsView({ data }: { data: TrackerData }) {
 }
 
 function deltaChip(current: number, previous: number) {
-  const diff = current - previous;
-  const pct = previous !== 0 ? (diff / Math.abs(previous)) * 100 : current > 0 ? 100 : 0;
-  const dir = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
-  const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "•";
+  const pct = pctChange(current, previous);
+  if (pct === null) return { dir: "up", arrow: "▲", pct: "nieuw" };
+  const dir = pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat";
+  const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "•";
   return { dir, arrow, pct: `${Math.abs(pct).toFixed(0)}%` };
 }
 

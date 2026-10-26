@@ -731,6 +731,10 @@ button.danger:hover { background: var(--danger-soft); border-color: var(--danger
 .insight-stat .val strong { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
 .insight-stat .val small { color: var(--muted); font-size: var(--text-xs); }
 .insight-stat .cap { text-transform: capitalize; }
+/* Geld binnen: de optelsom eindigt op een duidelijke totaalregel */
+.insight-stat.money-total { border-top: 2px solid var(--text); }
+.insight-stat.money-total .lbl { color: var(--text); font-weight: var(--fw-semibold); }
+.insight-stat.money-total .val strong { font-size: var(--text-lg); }
 
 /* Prognose & beste verkoopdagen */
 .forecast-note { font-size: var(--text-sm); margin: 0 0 var(--space-3); }

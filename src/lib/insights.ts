@@ -21,13 +21,6 @@ function dateKey(value: Date) {
   return new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(value);
 }
 
-function ymd(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 // De oude import is samengevoegd onder merk "Historisch" — uitgesloten van analyses.
 export function isImportBucket(merk: string) {
   return merk.toLowerCase() === "historisch";
@@ -43,17 +36,23 @@ function saleInBounds(sale: TrackerData["sales"][number], bounds: { start: Date;
   return date >= bounds.start && date < bounds.end;
 }
 
+// Inkoopprijs per stuk van een verkoopregel: vastgelegd bij verkoop, anders
+// (oude regel) de huidige gemiddelde inkoopprijs.
+export function itemCost(data: TrackerData, item: TrackerData["sales"][number]["items"][number]) {
+  if (item.inkoopPrijs !== undefined) return item.inkoopPrijs;
+  return data.variants.find((v) => v.id === item.variantId)?.inkoopPrijs ?? 0;
+}
+
 function saleStats(data: TrackerData, predicate?: (sale: TrackerData["sales"][number]) => boolean) {
   return data.sales
     .filter((sale) => isRegularSale(sale) && (predicate ? predicate(sale) : true))
     .reduce(
       (stats, sale) => {
         stats.omzet += sale.bedrag;
-        stats.transacties += 1;
+        if (!sale.gratis) stats.transacties += 1;
         for (const item of sale.items) {
-          const variant = data.variants.find((v) => v.id === item.variantId);
-          stats.stuks += item.aantal;
-          stats.winst += item.bedrag - item.aantal * (variant?.inkoopPrijs ?? 0);
+          if (!sale.gratis) stats.stuks += item.aantal;
+          stats.winst += item.bedrag - item.aantal * itemCost(data, item);
         }
         return stats;
       },
@@ -153,36 +152,6 @@ export function forecastRows(data: TrackerData, metric: SeriesMetric): ForecastR
     const trendPct = vorige > 0 ? ((afgelopen - vorige) / vorige) * 100 : afgelopen > 0 ? 100 : 0;
     return { label: horizon.label, afgelopen, vorige, verwacht, trendPct, enough };
   });
-}
-
-// --- weekdagen ---------------------------------------------------------------
-export const WEEKDAY_NAMES = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
-
-export type WeekdayStat = { name: string; omzet: number; gemiddeld: number; pct: number };
-
-// Omzet per weekdag over de hele historie → welke dagen draaien het best.
-export function weekdayStats(data: TrackerData): WeekdayStat[] {
-  const totals = new Array(7).fill(0) as number[];
-  const counts = new Array(7).fill(0) as number[];
-  const seenDays = new Set<string>();
-  for (const sale of data.sales) {
-    if (!isRegularSale(sale)) continue;
-    const date = new Date(sale.datum);
-    const index = (date.getDay() + 6) % 7; // 0 = maandag
-    totals[index] += sale.bedrag;
-    const key = `${index}:${ymd(normalizeDate(date))}`;
-    if (!seenDays.has(key)) {
-      seenDays.add(key);
-      counts[index] += 1;
-    }
-  }
-  const max = Math.max(1, ...totals);
-  return WEEKDAY_NAMES.map((name, index) => ({
-    name,
-    omzet: totals[index],
-    gemiddeld: counts[index] ? totals[index] / counts[index] : 0,
-    pct: totals[index] / max
-  }));
 }
 
 // --- clearance ---------------------------------------------------------------

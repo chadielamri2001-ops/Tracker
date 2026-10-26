@@ -202,12 +202,16 @@ async function createSaleFromInput(
 
   for (const item of input.items) {
     const aandeel = input.bedrag * (item.aantal / totalQty);
+    // Kostprijs vastleggen zoals die nú is, zodat de winst van deze verkoop later
+    // niet meer verschuift wanneer de gemiddelde inkoopprijs verandert.
+    const variant = byId.get(item.variantId)!;
     await tx.saleItem.create({
       data: {
         saleId: sale.id,
         variantId: item.variantId,
         aantal: item.aantal,
-        bedrag: decimal(aandeel)
+        bedrag: decimal(aandeel),
+        inkoopPrijs: variant.inkoopPrijs
       }
     });
     // Bij een directe/voorverkochte doorverkoop (affectStock=false) blijft de
@@ -587,7 +591,9 @@ async function createConcept(input: ReturnType<typeof parseMultiSaleForm>) {
       bezorgkosten: input.bezorgkosten === undefined ? null : decimal(input.bezorgkosten),
       rolAantal: input.rolAantal ?? null,
       betaalwijze: input.betaalwijze,
-      klantNaam: input.betaalwijze === PaymentMethod.POF ? input.klantNaam : null,
+      // Naam altijd bewaren als die is ingevuld: ook bij cash/tikkie spaart de
+      // klant dan op de stempelkaart zodra het concept wordt bevestigd.
+      klantNaam: input.klantNaam ?? null,
       createdAt: input.datum,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000)
     }
@@ -660,12 +666,50 @@ export async function updateSale(_prev: ActionState, formData: FormData): Promis
     if (input.concept) throw new Error("Een bestaande verkoop kan niet als concept worden opgeslagen.");
 
     await prisma.$transaction(async (tx) => {
+      // Al ontvangen pof-betalingen bewaren: zonder dit zou een bewerking van een
+      // deels afbetaalde verkoop de afbetalingen stilletjes wissen.
+      const oudeBetalingen = await tx.debtPayment.findMany({
+        where: { debt: { saleId: id } },
+        orderBy: { datum: "asc" }
+      });
       await reverseAndDeleteSale(tx, id);
-      await createSaleFromInput(tx, input);
+      const nieuw = await createSaleFromInput(tx, input);
+      if (oudeBetalingen.length) {
+        const debt = await tx.debt.findUnique({ where: { saleId: nieuw.id } });
+        if (debt) await herboekBetalingen(tx, debt, oudeBetalingen);
+      }
     });
 
     revalidatePath("/");
   });
+}
+
+// Zet eerder ontvangen betalingen terug op een (opnieuw aangemaakte) pofpost,
+// tot maximaal het nieuwe bedrag.
+async function herboekBetalingen(
+  tx: Prisma.TransactionClient,
+  debt: { id: string; bedrag: Prisma.Decimal },
+  betalingen: Array<{ bedrag: Prisma.Decimal; datum: Date; geschat: boolean }>
+) {
+  let ruimte = round2(Number(debt.bedrag));
+  let laatste: Date | null = null;
+  for (const betaling of betalingen) {
+    if (ruimte <= 0) break;
+    const bedrag = Math.min(ruimte, round2(Number(betaling.bedrag)));
+    await tx.debtPayment.create({ data: { debtId: debt.id, bedrag: decimal(bedrag), datum: betaling.datum, geschat: betaling.geschat } });
+    ruimte = round2(ruimte - bedrag);
+    laatste = betaling.datum;
+  }
+  const afbetaald = round2(Number(debt.bedrag) - ruimte);
+  const volledig = ruimte <= 0.001;
+  await tx.debt.update({
+    where: { id: debt.id },
+    data: { afbetaald: decimal(afbetaald), betaald: volledig, paidAt: volledig ? laatste : null }
+  });
+  if (volledig) {
+    const full = await tx.debt.findUnique({ where: { id: debt.id } });
+    if (full?.saleId) await tx.sale.update({ where: { id: full.saleId }, data: { pofBetaald: true, paidAt: laatste } });
+  }
 }
 
 export async function deletePurchase(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -714,19 +758,30 @@ export async function addDebt(_prev: ActionState, formData: FormData): Promise<A
   });
 }
 
+// Zet één pofpost volledig op betaald en legt het nog openstaande deel vast als
+// terugbetaling op deze datum (voor "geld binnen" per periode).
+async function sluitPost(
+  tx: Prisma.TransactionClient,
+  debt: { id: string; bedrag: Prisma.Decimal; afbetaald: Prisma.Decimal; saleId: string | null },
+  now: Date
+) {
+  const open = round2(Number(debt.bedrag) - Number(debt.afbetaald));
+  if (open > 0) await tx.debtPayment.create({ data: { debtId: debt.id, bedrag: decimal(open), datum: now } });
+  await tx.debt.update({ where: { id: debt.id }, data: { betaald: true, paidAt: now, afbetaald: debt.bedrag } });
+  if (debt.saleId) await tx.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } });
+}
+
 export async function markDebtPaid(_prev: ActionState, formData: FormData): Promise<ActionState> {
   return runAction(async () => {
     await guardWrite("write:debt");
     const { id } = parse(idSchema, Object.fromEntries(formData));
     const now = new Date();
-    const debt = await prisma.debt.update({
-      where: { id },
-      data: { betaald: true, paidAt: now },
-      include: { sale: true }
+    await prisma.$transaction(async (tx) => {
+      const debt = await tx.debt.findUnique({ where: { id } });
+      if (!debt) throw new Error("Pofpost bestaat niet.");
+      if (debt.betaald) return;
+      await sluitPost(tx, debt, now);
     });
-    if (debt.saleId) {
-      await prisma.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } });
-    }
     revalidatePath("/");
   });
 }
@@ -736,14 +791,10 @@ export async function markAllDebtsPaid(_prev: ActionState, formData: FormData): 
     await guardWrite("write:debt");
     const { naam } = parse(nameSchema, Object.fromEntries(formData));
     const now = new Date();
-    const debts = await prisma.debt.findMany({ where: { naam, betaald: false } });
-    await prisma.$transaction([
-      prisma.debt.updateMany({ where: { naam, betaald: false }, data: { betaald: true, paidAt: now } }),
-      prisma.sale.updateMany({
-        where: { id: { in: debts.map((debt) => debt.saleId).filter((id): id is string => Boolean(id)) } },
-        data: { pofBetaald: true, paidAt: now }
-      })
-    ]);
+    await prisma.$transaction(async (tx) => {
+      const debts = await tx.debt.findMany({ where: { naam, betaald: false } });
+      for (const debt of debts) await sluitPost(tx, debt, now);
+    }, { timeout: 20_000 });
     revalidatePath("/");
   });
 }
@@ -771,27 +822,27 @@ export async function payDebtAmount(_prev: ActionState, formData: FormData): Pro
       throw new Error(`${input.naam} heeft maar ${openTekst} openstaan. Voer maximaal dat bedrag in.`);
     }
     let resterend = round2(input.bedrag);
-    const updates: Prisma.PrismaPromise<unknown>[] = [];
-    for (const debt of openDebts) {
-      if (resterend <= 0) break;
-      const open = round2(Number(debt.bedrag) - Number(debt.afbetaald));
-      const betaling = Math.min(open, resterend);
-      const nieuwAfbetaald = round2(Number(debt.afbetaald) + betaling);
-      const volledig = nieuwAfbetaald >= round2(Number(debt.bedrag)) - 0.001;
-      updates.push(
-        prisma.debt.update({
+    await prisma.$transaction(async (tx) => {
+      for (const debt of openDebts) {
+        if (resterend <= 0) break;
+        const open = round2(Number(debt.bedrag) - Number(debt.afbetaald));
+        const betaling = Math.min(open, resterend);
+        if (betaling <= 0) continue;
+        const nieuwAfbetaald = round2(Number(debt.afbetaald) + betaling);
+        const volledig = nieuwAfbetaald >= round2(Number(debt.bedrag)) - 0.001;
+        await tx.debtPayment.create({ data: { debtId: debt.id, bedrag: decimal(betaling), datum: now } });
+        await tx.debt.update({
           where: { id: debt.id },
           data: volledig
             ? { afbetaald: decimal(Number(debt.bedrag)), betaald: true, paidAt: now }
             : { afbetaald: decimal(nieuwAfbetaald) }
-        })
-      );
-      if (volledig && debt.saleId) {
-        updates.push(prisma.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } }));
+        });
+        if (volledig && debt.saleId) {
+          await tx.sale.update({ where: { id: debt.saleId }, data: { pofBetaald: true, paidAt: now } });
+        }
+        resterend = round2(resterend - betaling);
       }
-      resterend = round2(resterend - betaling);
-    }
-    await prisma.$transaction(updates);
+    }, { timeout: 20_000 });
     revalidatePath("/");
   });
 }

@@ -72,7 +72,8 @@ export async function getTrackerData() {
         productType: item.variant.productType,
         smaak: item.variant.smaak,
         aantal: item.aantal,
-        bedrag: Number(item.bedrag)
+        bedrag: Number(item.bedrag),
+        inkoopPrijs: Number(item.inkoopPrijs ?? item.variant.inkoopPrijs)
       }))
     })),
     debts: debts.map((debt) => ({

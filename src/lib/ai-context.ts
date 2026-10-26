@@ -1,85 +1,58 @@
 import type { TrackerData } from "./validators";
-import type { AnalyticsSummary, DayBucket } from "@/server/analytics";
-import { clearanceSuggestions, forecastRows, isRegularSale, loyaltyCards, salesForecast, weekdayStats } from "./insights";
+import type { AnalyticsSummary } from "@/server/analytics";
+import { clearanceSuggestions, forecastRows, isRegularSale, itemCost, loyaltyCards, salesForecast } from "./insights";
+import { addDays, compareWithPrevious, derive, moneyAverages, moneyByMonth, normalizeDate, periodContaining, sumRange, weekdayAverages, type Totals } from "./stats";
 
 // Bouwt een compacte, deterministisch berekende samenvatting van de cijfers die
-// als context naar Claude gaat. Géén ruwe rijen of volledige klantnamen — alleen
-// aggregaten (privacy + kosten). Claude redeneert hierop; rekent niet zelf.
-
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function ymdOffset(daysAgo: number): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - daysAgo);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function monthStartYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
-}
-
-function sumRange(days: DayBucket[], startInclusive: string, endInclusive: string) {
-  return days.reduce(
-    (acc, day) => {
-      if (day.date < startInclusive || day.date > endInclusive) return acc;
-      acc.omzet += day.omzet;
-      acc.winst += day.winst;
-      acc.stuks += day.stuks;
-      acc.transacties += day.transacties;
-      return acc;
-    },
-    { omzet: 0, winst: 0, stuks: 0, transacties: 0 }
-  );
-}
+// als context naar Claude gaat. Géén ruwe rijen — alleen aggregaten (privacy +
+// kosten). Klantnamen gaan alleen mee bij de stempelkaarten (wie heeft er een
+// gratis bakje tegoed). Claude redeneert hierop; rekent niet zelf.
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-const marginPct = (omzet: number, winst: number) => (omzet > 0 ? round2((winst / omzet) * 100) : 0);
 
 export type InsightContext = ReturnType<typeof buildInsightContext>;
 
 export function buildInsightContext(data: TrackerData, analytics: AnalyticsSummary) {
   const days = analytics.days;
-  const today = ymdOffset(0);
+  const today = normalizeDate(new Date());
+  const tomorrow = addDays(today, 1);
 
-  const vandaag = sumRange(days, today, today);
-  const last7 = sumRange(days, ymdOffset(6), today);
-  const prev7 = sumRange(days, ymdOffset(13), ymdOffset(7));
-  const last30 = sumRange(days, ymdOffset(29), today);
-  const prev30 = sumRange(days, ymdOffset(59), ymdOffset(30));
-  const dezeMaand = sumRange(days, monthStartYmd(), today);
+  const vandaag = sumRange(days, today, tomorrow);
+  const last7 = sumRange(days, addDays(today, -6), tomorrow);
+  const prev7 = sumRange(days, addDays(today, -13), addDays(today, -6));
+  const last30 = sumRange(days, addDays(today, -29), tomorrow);
+  const prev30 = sumRange(days, addDays(today, -59), addDays(today, -29));
+  const maandVergelijking = compareWithPrevious(days, "maand", periodContaining("maand", today), today);
 
   const openDebts = data.debts.filter((debt) => !debt.betaald);
-  const openPof = round2(openDebts.reduce((sum, debt) => sum + debt.bedrag, 0));
+  const openPof = round2(openDebts.reduce((sum, debt) => sum + Math.max(0, debt.bedrag - (debt.afbetaald ?? 0)), 0));
   const openPofPersonen = new Set(openDebts.map((debt) => debt.naam)).size;
 
   const voorraadWaarde = round2(data.variants.reduce((sum, v) => sum + v.voorraad * v.inkoopPrijs, 0));
   const voorraadStuks = data.variants.reduce((sum, v) => sum + v.voorraad, 0);
 
-  const regularProductStats = new Map<string, { omzet: number; verkocht: number }>();
+  const regularProductStats = new Map<string, { omzet: number; verkocht: number; kosten: number }>();
   for (const sale of data.sales) {
     if (!isRegularSale(sale)) continue;
     for (const item of sale.items) {
-      const current = regularProductStats.get(item.variantId) ?? { omzet: 0, verkocht: 0 };
+      const current = regularProductStats.get(item.variantId) ?? { omzet: 0, verkocht: 0, kosten: 0 };
       current.omzet += item.bedrag;
-      current.verkocht += item.aantal;
+      if (!sale.gratis) current.verkocht += item.aantal;
+      current.kosten += item.aantal * itemCost(data, item);
       regularProductStats.set(item.variantId, current);
     }
   }
 
   const sellable = data.variants.filter((v) => v.merk.toLowerCase() !== "historisch");
   const bestVerkocht = [...sellable]
-    .map((v) => ({ variant: v, stats: regularProductStats.get(v.id) ?? { omzet: 0, verkocht: 0 } }))
+    .map((v) => ({ variant: v, stats: regularProductStats.get(v.id) ?? { omzet: 0, verkocht: 0, kosten: 0 } }))
     .sort((a, b) => b.stats.omzet - a.stats.omzet)
     .slice(0, 6)
     .map(({ variant, stats }) => ({
       naam: `${variant.merk} ${variant.smaak}`,
       omzet: round2(stats.omzet),
       verkocht: stats.verkocht,
-      winst: round2(stats.omzet - stats.verkocht * variant.inkoopPrijs)
+      winst: round2(stats.omzet - stats.kosten)
     }));
 
   const traag = clearanceSuggestions(data).map((c) => ({
@@ -89,7 +62,7 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
     stilstaandeWaarde: round2(c.waarde)
   }));
 
-  const weekdagen = weekdayStats(data).map((w) => ({ dag: w.name, gemiddeld: round2(w.gemiddeld), totaal: round2(w.omzet) }));
+  const weekdagen = weekdayAverages(days).map((w) => ({ dag: w.name, gemiddeld: round2(w.gemiddeld), totaal: round2(w.totaal) }));
 
   const forecast = forecastRows(data, "omzet").map((r) => ({
     periode: r.label,
@@ -106,30 +79,33 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
     topSpaarders: cards.slice(0, 5).map((c) => ({ klant: c.naam, gekocht: c.betaaldeStuks, stempels: c.progress, gratisTegoed: c.outstanding }))
   };
 
-  const periode = (curr: { omzet: number; winst: number; stuks: number; transacties: number }) => ({
-    omzet: round2(curr.omzet),
-    winst: round2(curr.winst),
-    margePct: marginPct(curr.omzet, curr.winst),
-    stuks: curr.stuks,
-    transacties: curr.transacties
-  });
+  // Totaal = gewone verkoop + doorverkoop; gewoon/doorverkoop apart erbij.
+  const periode = (t: Totals) => {
+    const d = derive(t);
+    return {
+      omzet: round2(d.omzetTotaal),
+      winst: round2(d.winstTotaal),
+      margePct: round2(d.marge),
+      doorverkoopOmzet: round2(t.dealOmzet),
+      doorverkoopWinst: round2(t.dealWinst),
+      stuks: t.stuks,
+      transacties: t.transacties,
+      geldBinnen: round2(d.ontvangen),
+      opPofGezet: round2(t.opPof),
+      pofTerugbetaald: round2(t.terugbetaald)
+    };
+  };
 
-  // Maand-voor-maand historie over alle beschikbare data, zodat de AI de echte
-  // lange-termijntrend ziet — en eerlijk kan zijn over hoe ver de historie reikt.
-  const maandMap = new Map<string, { omzet: number; winst: number; stuks: number; transacties: number }>();
-  for (const day of days) {
-    const maand = day.date.slice(0, 7);
-    const entry = maandMap.get(maand) ?? { omzet: 0, winst: 0, stuks: 0, transacties: 0 };
-    entry.omzet += day.omzet;
-    entry.winst += day.winst;
-    entry.stuks += day.stuks;
-    entry.transacties += day.transacties;
-    maandMap.set(maand, entry);
-  }
-  const maandhistorie = [...maandMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([maand, s]) => ({ maand, omzet: round2(s.omzet), winst: round2(s.winst), margePct: marginPct(s.omzet, s.winst), stuks: s.stuks, transacties: s.transacties }));
-  const actieveDagen = days.filter((day) => day.omzet > 0 || day.stuks > 0).length;
+  const maanden = moneyByMonth(days);
+  const maandhistorie = maanden.map((m) => {
+    const range = periodContaining("maand", new Date(Number(m.maand.slice(0, 4)), Number(m.maand.slice(5, 7)) - 1, 1));
+    const t = sumRange(days, range.start, range.end);
+    return { maand: m.maand, lopend: m.lopend, ...periode(t), pofSaldoEind: round2(m.saldoEind) };
+  });
+  const gem = moneyAverages(maanden);
+  const actieveDagen = days.filter((day) => day.transacties > 0).length;
+  const verkoopDagen = days.filter((day) => day.transacties > 0);
+  const besteDag = verkoopDagen.reduce<(typeof days)[number] | null>((best, day) => (!best || day.omzet > best.omzet ? day : best), null);
 
   return {
     gegenereerdOp: new Date().toISOString(),
@@ -140,9 +116,20 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
       ervoor7dagen: periode(prev7),
       afgelopen30dagen: periode(last30),
       ervoor30dagen: periode(prev30),
-      dezeMaand: periode(dezeMaand),
-      alleTijd: { ...periode(analytics.allTime), margePct: marginPct(analytics.allTime.omzet, analytics.allTime.winst) }
+      dezeMaand: periode(maandVergelijking.current),
+      vorigeMaandZelfdeAantalDagen: periode(maandVergelijking.previous),
+      alleTijd: periode(analytics.allTime)
     },
+    geldBinnenGemiddeldPerMaand: gem
+      ? {
+          overVolledigeMaanden: gem.maanden,
+          omzet: round2(gem.omzet),
+          opPofGezet: round2(gem.opPof),
+          pofTerugbetaald: round2(gem.terugbetaald),
+          geldBinnen: round2(gem.ontvangen),
+          pofPctVanOmzet: round2(gem.pofPct)
+        }
+      : null,
     dataReeks: {
       vanaf: days.length ? days[0].date : null,
       aantalMaanden: maandhistorie.length,
@@ -151,8 +138,7 @@ export function buildInsightContext(data: TrackerData, analytics: AnalyticsSumma
     maandhistorie,
     forecastVerwachting: forecast,
     weekdagen,
-    besteDag: analytics.bestDay,
-    slechtsteDag: analytics.worstDay,
+    besteDag: besteDag ? { datum: besteDag.date, omzet: besteDag.omzet, transacties: besteDag.transacties } : null,
     bestVerkochteProducten: bestVerkocht,
     traagLopendVoorraad: traag,
     voorraad: { stuks: voorraadStuks, inkoopwaarde: voorraadWaarde },
